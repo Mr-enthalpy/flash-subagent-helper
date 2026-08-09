@@ -1,5 +1,5 @@
 id = "deepseek_scout"
 description = "Large read-only repository discovery and symbol location."
 sandbox = "read-only"
-network = false
+sandbox_network_access = false
 instructions = "Search broadly but return compressed file and symbol evidence. Never write or delegate."

@@ -7,10 +7,12 @@ interfaces. VERIFIED AGAINST: Codex CLI 0.146.0 on Windows.
 FAILURE SYMPTOM: strict-load rejection, missing roles, or wrong Guardian model.
 
 CCR-SENSITIVE:
-WHY: plugin registration is external. Compatibility is decided by an executable
-adapter contract, never inferred from a version string.
-VERIFIED AGAINST: gateway_plugin_v1, 2026-08-09.
-FAILURE SYMPTOM: the contract probe fails before deployment.
+WHY: plugin registration is an external CCR Desktop interface. This package
+validates its own setup/registration shape but deliberately does not mutate
+CCR's internal runtime gateway configuration.
+VERIFIED AGAINST: CCR Desktop Extensions folder installation, 2026-08-10.
+FAILURE SYMPTOM: the package contract passes but CCR does not show or enable the
+extension; live traffic remains untransformed until the operator enables it.
 """
 from __future__ import annotations
 
@@ -20,15 +22,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_NAMES = {"auth.json", "cap_sid", "models_cache.json", ".env", ".codex-global-state.json"}
-PACKAGE_KEYS = {"schema_version", "package_id", "package_version", "managed_marker", "local_provider_id", "plugin_id", "roles"}
+PACKAGE_KEYS = {"schema_version", "package_id", "package_version", "managed_marker", "local_provider_id", "plugin_id", "profile_id", "ccr_plugin_activation", "roles"}
 DEPLOYMENT_KEYS = {
     "deployment": {"codex_home", "ccr_home", "backup_root"},
     "gateway": {"base_url", "client_key_env"},
-    "worker": {"model_selector", "profile", "effective_model_identity"},
-    "ccr": {"adapter"},
+    "worker": {"model_selector", "effective_model_identity"},
 }
 PROFILE_KEYS = {"schema_version", "id", "version", "codex_baseline", "model_template", "responses_endpoint_suffix", "unsupported_tool_types", "tool_choice_fallback"}
-ROLE_KEYS = {"id", "description", "sandbox", "network", "instructions"}
+ROLE_KEYS = {"id", "description", "sandbox", "sandbox_network_access", "instructions"}
+MODELINFO_TEMPLATE_KEYS = {
+    "slug", "display_name", "description", "default_reasoning_level",
+    "supported_reasoning_levels", "shell_type", "visibility", "supported_in_api",
+    "priority", "default_service_tier", "availability_nux", "upgrade",
+    "model_messages", "include_skills_usage_instructions",
+    "supports_reasoning_summary_parameter", "default_reasoning_summary",
+    "support_verbosity", "default_verbosity", "apply_patch_tool_type",
+    "web_search_tool_type", "truncation_policy", "supports_parallel_tool_calls",
+    "supports_image_detail_original", "context_window", "max_context_window",
+    "auto_compact_token_limit", "comp_hash", "effective_context_window_percent",
+    "experimental_supported_tools", "input_modalities", "supports_search_tool",
+    "use_responses_lite", "auto_review_model_override", "tool_mode",
+    "multi_agent_version", "base_instructions",
+}
 
 
 class PackageError(RuntimeError): pass
@@ -45,12 +60,14 @@ def package_config() -> dict:
     roles = value.get("roles")
     if not isinstance(roles, list) or not roles or len(roles) != len(set(roles)):
         raise PackageError("package.toml roles must be a non-empty unique list")
-    identifiers = [value["local_provider_id"], value["plugin_id"], *roles]
+    identifiers = [value["local_provider_id"], value["plugin_id"], value["profile_id"], *roles]
     if not all(isinstance(item, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]*", item) for item in identifiers):
         raise PackageError("package.toml contains an unsafe provider/plugin/role identifier")
     plugin_manifest = ROOT / "plugins" / value["plugin_id"] / "plugin.json"
     if not plugin_manifest.is_file() or json.loads(plugin_manifest.read_text(encoding="utf-8")).get("id") != value["plugin_id"]:
         raise PackageError("package.toml plugin_id does not resolve to a matching plugin manifest")
+    if value["ccr_plugin_activation"] != "manual":
+        raise PackageError("unsupported CCR plugin activation policy")
     return value
 
 
@@ -116,12 +133,11 @@ def deployment(path: Path) -> dict:
     gateway_url = urllib.parse.urlparse(data["gateway"]["base_url"])
     if gateway_url.scheme not in {"http", "https"} or gateway_url.hostname not in {"127.0.0.1", "localhost", "::1"} or gateway_url.username or gateway_url.password:
         raise PackageError("gateway.base_url must be a credential-free loopback HTTP(S) URL")
-    if data["ccr"]["adapter"] != "gateway_plugin_v1": raise PackageError("unsupported ccr.adapter")
     return data
 
 
 def load_sources(data: dict) -> tuple[dict, list[dict], dict]:
-    package, profile_id = package_config(), data["worker"]["profile"]
+    package = package_config(); profile_id = package["profile_id"]
     profile_path = ROOT / "profile" / profile_id / "profile.toml"
     if not profile_path.is_file(): raise PackageError(f"profile missing: {profile_id}")
     profile = load_toml(profile_path); exact_keys("profile", profile, PROFILE_KEYS)
@@ -132,7 +148,7 @@ def load_sources(data: dict) -> tuple[dict, list[dict], dict]:
         if not path.is_file(): raise PackageError(f"declared role missing: {name}")
         role = load_toml(path); exact_keys(f"role {name}", role, ROLE_KEYS)
         if role["id"] != name or role["sandbox"] not in {"read-only", "workspace-write"}: raise PackageError(f"invalid role: {name}")
-        if role["network"] is not False: raise PackageError(f"network must remain denied: {name}")
+        if not isinstance(role["sandbox_network_access"], bool): raise PackageError(f"sandbox_network_access must be boolean: {name}")
         roles.append(role)
     if {p.stem for p in (ROOT / "roles").glob("*.toml")} != set(roles_from(package)): raise PackageError("role files differ from package.toml")
     return profile, roles, package
@@ -163,10 +179,11 @@ def render_tree(data: dict, output: Path, codex_home: Path | None = None) -> dic
         role_path = (codex_home / "agents" / f"{role['id']}.toml") if codex_home else Path("<CODEX_HOME>") / "agents" / f"{role['id']}.toml"
         config += [f"[agents.{role['id']}]", f"description = {quote_toml(role['description'])}", f"config_file = {quote_toml(str(role_path))}", ""]
         lines = [f"model_provider = {quote_toml(provider_id)}", f"model = {quote_toml(worker['model_selector'])}", f"model_catalog_json = {quote_toml(str(catalog_path))}", f"sandbox_mode = {quote_toml(role['sandbox'])}", 'approval_policy = "on-request"', f"developer_instructions = {quote_toml(role['instructions'])}"]
-        if role["network"] is False:
+        if isinstance(role["sandbox_network_access"], bool):
             # CODEX-SENSITIVE: network_access is nested here, not top-level.
             # VERIFIED AGAINST: Codex 0.146.0. FAILURE: strict rejection or network grant.
-            lines += ["", "[sandbox_workspace_write]", "network_access = false"]
+            network_value = "true" if role["sandbox_network_access"] else "false"
+            lines += ["", "[sandbox_workspace_write]", f"network_access = {network_value}"]
         lines.append(""); generated[f"agents/{role['id']}.toml"] = "\n".join(lines)
     config.append(end); generated["config.fragment.toml"] = "\n".join(config) + "\n"
     generated["plugin-profile.json"] = stable_json({"profile_id": profile["id"], "profile_version": profile["version"], "model_selectors": [worker["model_selector"]], "responses_endpoint_suffix": profile["responses_endpoint_suffix"], "unsupported_tool_types": profile["unsupported_tool_types"], "namespace_tool_choice_fallback": profile["tool_choice_fallback"]})
@@ -208,38 +225,51 @@ def command_version(command: str) -> str | None:
     return "present-version-unknown"
 
 
-def probe_ccr_adapter(data: dict, ccr_home: Path) -> dict:
-    result = {"adapter": data["ccr"]["adapter"], "status": "FAIL", "detail": "not probed"}
-    gateway = ccr_home / "gateway.config.json"
-    if not gateway.is_file(): result["detail"] = "gateway.config.json missing"; return result
-    try: gateway_data = json.loads(gateway.read_text(encoding="utf-8"))
-    except Exception as error: result["detail"] = f"gateway parse failed: {type(error).__name__}"; return result
-    if not isinstance(gateway_data.get("plugins"), list): result["detail"] = "gateway_plugin_v1 requires plugins[]"; return result
+def probe_ccr_plugin_package(data: dict) -> dict:
+    result = {"scope": "packaged-plugin-only", "status": "FAIL", "detail": "not probed"}
     if not shutil.which("node"): result["detail"] = "Node.js missing"; return result
-    with tempfile.TemporaryDirectory(prefix="ccr-adapter-probe-") as temp:
+    with tempfile.TemporaryDirectory(prefix="ccr-plugin-package-probe-") as temp:
         rendered = Path(temp); render_tree(data, rendered, Path("C:/fixture/codex-home"))
-        command = ["node", str(ROOT / "scripts" / "ccr-adapter-contract.cjs"), str(ROOT / "plugins" / package_config()["plugin_id"] / "gateway-plugin.cjs"), str(rendered / "plugin-profile.json")]
+        plugin_dir = ROOT / "plugins" / package_config()["plugin_id"]
+        command = ["node", str(ROOT / "scripts" / "ccr-plugin-package-contract.cjs"), str(plugin_dir), str(rendered / "plugin-profile.json")]
         probe = subprocess.run(command, capture_output=True, text=True, timeout=15)
     if probe.returncode: result["detail"] = (probe.stderr or probe.stdout).strip()[:240]; return result
-    result.update(status="PASS", detail="plugins[] parsed; executable transformRequest contract passed"); return result
+    result.update(status="PASS", detail="plugin setup registration and transformRequest package contract passed"); return result
+
+
+def desired_state_matches(data: dict, codex_home: Path, ccr_home: Path) -> bool:
+    package = package_config(); config = codex_home / "config.toml"
+    with tempfile.TemporaryDirectory(prefix="worker-pool-noop-") as temp:
+        rendered = Path(temp); render_tree(data, rendered, codex_home)
+        pairs = [(rendered / "models.worker.json", codex_home / "models.worker.json")]
+        pairs += [(rendered / "agents" / f"{role}.toml", codex_home / "agents" / f"{role}.toml") for role in roles_from(package)]
+        if any(not target.is_file() or source.read_bytes() != target.read_bytes() for source, target in pairs): return False
+        existing = config.read_text(encoding="utf-8") if config.is_file() else ""
+        fragment = (rendered / "config.fragment.toml").read_text(encoding="utf-8")
+        if merge_managed_block(existing, fragment, package) != existing: return False
+        desired_plugin = rendered / "ccr-plugin"; shutil.copytree(ROOT / "plugins" / package["plugin_id"], desired_plugin)
+        shutil.copy2(rendered / "plugin-profile.json", desired_plugin / "capability-profile.json")
+        installed_plugin = ccr_home / "plugins" / package["plugin_id"]
+        return installed_plugin.is_dir() and artifact_hash(desired_plugin) == artifact_hash(installed_plugin)
 
 
 def plan(data: dict) -> dict:
     package = package_config(); profile, _, _ = load_sources(data)
     codex_home, ccr_home = resolve_home(data["deployment"]["codex_home"], "codex"), resolve_home(data["deployment"]["ccr_home"], "ccr")
+    ensure_supported_upgrade(codex_home, package)
     config = codex_home / "config.toml"; check_conflicts(config.read_text(encoding="utf-8") if config.is_file() else "", package)
-    probe = probe_ccr_adapter(data, ccr_home)
+    probe = probe_ccr_plugin_package(data)
     artifacts = [codex_home / "agents" / f"{r}.toml" for r in roles_from(package)] + [codex_home / "models.worker.json"]
-    assert_artifact_ownership(codex_home, artifacts)
-    targets = artifacts + [config, ccr_home / "plugins" / package["plugin_id"]]
-    gateway_config = ccr_home / "gateway.config.json"
+    plugin_target = ccr_home / "plugins" / package["plugin_id"]
+    assert_artifact_ownership(codex_home, artifacts + [plugin_target])
+    targets = artifacts + [config, plugin_target]
     create, modify = [str(p) for p in targets if not p.exists()], [str(p) for p in targets if p.exists()]
-    if gateway_config.exists(): modify.append(str(gateway_config))
-    return {"detected": {"codex": command_version("codex") or "not-detected", "ccr": command_version("ccr") or "not-detected"}, "target": {"local_provider": package["local_provider_id"], "gateway": data["gateway"]["base_url"], "model_selector": data["worker"]["model_selector"], "effective_model_identity": data["worker"].get("effective_model_identity", "USER_MUST_VERIFY"), "profile": f"{profile['id']}@{profile['version']}", "ccr_adapter": data["ccr"]["adapter"]}, "will_create": create, "will_modify": modify, "will_preserve": ["root model/provider", "login/auth", "unmanaged agents", "MCP", "tools", "unrelated instructions"], "external_dependencies": ["Codex login", "CCR upstream route and credential", data["gateway"]["client_key_env"]], "restart_required": True, "compatibility_status": "VERIFIED" if probe["status"] == "PASS" else "INCOMPATIBLE", "ccr_contract": probe, "codex_home": str(codex_home), "ccr_home": str(ccr_home)}
+    state = "NOOP" if desired_state_matches(data, codex_home, ccr_home) else "CHANGES_REQUIRED"
+    if state == "NOOP": create, modify = [], []
+    return {"detected": {"codex": command_version("codex") or "not-detected", "ccr": command_version("ccr") or "not-detected"}, "target": {"local_provider": package["local_provider_id"], "gateway": data["gateway"]["base_url"], "model_selector": data["worker"]["model_selector"], "effective_model_identity": data["worker"].get("effective_model_identity", "USER_MUST_VERIFY"), "profile": f"{profile['id']}@{profile['version']}", "ccr_plugin_activation": package["ccr_plugin_activation"]}, "deployment_state": state, "will_create": create, "will_modify": modify, "will_preserve": ["root model/provider", "login/auth", "unmanaged agents", "MCP", "tools", "unrelated instructions", "CCR runtime gateway config"], "external_dependencies": ["Codex login", "CCR upstream route and credential", data["gateway"]["client_key_env"], "Enable the copied plugin through CCR Extensions"], "restart_required": True, "compatibility_status": "MANUAL_ACTIVATION_REQUIRED" if probe["status"] == "PASS" else "INCOMPATIBLE", "ccr_plugin_package_contract": probe, "codex_home": str(codex_home), "ccr_home": str(ccr_home)}
 
 
 def print_plan(value: dict) -> None: print("DEPLOYMENT PLAN\n" + stable_json(value), end="")
-def plugin_registration(package: dict, target: Path) -> tuple[str, str]: return f"{package['plugin_id']}-core", str(target / "gateway-plugin.cjs")
 
 
 def assert_artifact_ownership(codex_home: Path, targets: list[Path]) -> None:
@@ -260,26 +290,39 @@ def assert_artifact_ownership(codex_home: Path, targets: list[Path]) -> None:
         if artifact_hash(target) != expected: raise PackageError(f"CONFLICT package-owned artifact was edited: {target}")
 
 
+def ensure_supported_upgrade(codex_home: Path, package: dict) -> None:
+    """Fail closed when a prior deployment used a different lifecycle contract."""
+    pointer = codex_home / "deployment-package-state" / "current.json"
+    if not pointer.is_file(): return
+    try:
+        manifest_path = Path(json.loads(pointer.read_text(encoding="utf-8"))["manifest"])
+        installed = str(json.loads(manifest_path.read_text(encoding="utf-8"))["package_version"])
+    except Exception as error:
+        raise PackageError(f"installed package version is unreadable: {type(error).__name__}") from error
+    current = str(package["package_version"])
+    if installed.split(".")[:2] != current.split(".")[:2]:
+        raise PackageError(
+            f"UNSUPPORTED LIFECYCLE UPGRADE {installed} -> {current}: "
+            "uninstall the existing deployment with its original package version before applying this version"
+        )
+
+
 def apply(data: dict) -> None:
     value = plan(data); print_plan(value)
-    if value["ccr_contract"]["status"] != "PASS": raise PackageError("CCR adapter contract probe failed; apply refused")
+    if value["ccr_plugin_package_contract"]["status"] != "PASS": raise PackageError("CCR plugin package contract failed; apply refused")
+    if value["deployment_state"] == "NOOP":
+        print("NOOP: installed package artifacts already match declarative configuration; no revision created")
+        return
     package = package_config(); codex_home, ccr_home = Path(value["codex_home"]), Path(value["ccr_home"])
+    ensure_supported_upgrade(codex_home, package)
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_setting = data["deployment"].get("backup_root", "auto")
     revision = codex_home / "deployment-package-state" / "revisions" / timestamp if backup_setting == "auto" else Path(backup_setting).expanduser().resolve() / timestamp
     current = codex_home / "deployment-package-state" / "current.json"; previous = json.loads(current.read_text(encoding="utf-8")) if current.is_file() else None
     backup_root = revision / "backups"; created, modified, backups = [], [], {}
-    managed_targets = [codex_home / "models.worker.json"] + [codex_home / "agents" / f"{r}.toml" for r in roles_from(package)]
-    assert_artifact_ownership(codex_home, managed_targets)
     plugin_target = ccr_home / "plugins" / package["plugin_id"]
-    if plugin_target.exists():
-        try: owned = json.loads((plugin_target / "plugin.json").read_text(encoding="utf-8")).get("id") == package["plugin_id"]
-        except Exception: owned = False
-        if not owned: raise PackageError(f"CONFLICT plugin not package-owned: {plugin_target}")
-    gateway_config = ccr_home / "gateway.config.json"; gateway_data = json.loads(gateway_config.read_text(encoding="utf-8")); plugins = gateway_data.get("plugins")
-    if not isinstance(plugins, list): raise PackageError("gateway_plugin_v1 plugins[] missing")
-    plugin_key, module_path = plugin_registration(package, plugin_target); entry = next((x for x in plugins if isinstance(x, dict) and x.get("key") == plugin_key), None)
-    if entry and entry.get("modulePath") != module_path: raise PackageError(f"CONFLICT plugin key: {plugin_key}")
+    managed_targets = [codex_home / "models.worker.json"] + [codex_home / "agents" / f"{r}.toml" for r in roles_from(package)] + [plugin_target]
+    assert_artifact_ownership(codex_home, managed_targets)
     def backup(target: Path, relative: Path) -> None:
         destination = backup_root / relative; destination.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(target, destination)
         backups[str(target)] = str(destination); modified.append(str(target))
@@ -300,14 +343,20 @@ def apply(data: dict) -> None:
             backups[str(plugin_target)] = str(destination); modified.append(str(plugin_target)); shutil.rmtree(plugin_target)
         else: created.append(str(plugin_target))
         plugin_target.parent.mkdir(parents=True, exist_ok=True); shutil.copytree(ROOT / "plugins" / package["plugin_id"], plugin_target); shutil.copy2(rendered / "plugin-profile.json", plugin_target / "capability-profile.json")
-        backup(gateway_config, Path("ccr") / "gateway.config.json")
-        if entry: entry.update({"enabled": True, "modulePath": module_path})
-        else: plugins.append({"enabled": True, "key": plugin_key, "modulePath": module_path})
-        write_text(gateway_config, stable_json(gateway_data))
     hashes = {item: artifact_hash(Path(item)) for item in created + modified if Path(item).exists()}
     manifest = {"schema_version": 2, "package_version": package["package_version"], "timestamp": timestamp, "created": created, "modified": modified, "backups": backups, "installed_hashes": hashes, "previous_current": previous}
-    write_text(revision / "revision-manifest.json", stable_json(manifest)); write_text(current, stable_json({"revision": timestamp, "manifest": str(revision / "revision-manifest.json")}))
-    print(f"APPLIED revision={timestamp}; restart Codex and CCR")
+    manifest_path = revision / "revision-manifest.json"
+    write_text(manifest_path, stable_json(manifest)); write_text(current, stable_json({"revision": timestamp, "manifest": str(manifest_path)}))
+    baseline = codex_home / "deployment-package-state" / "baseline.json"
+    if not baseline.is_file():
+        baseline_manifest = manifest_path
+        pointer = previous
+        while pointer:
+            baseline_manifest = Path(pointer["manifest"])
+            prior_manifest = json.loads(baseline_manifest.read_text(encoding="utf-8"))
+            pointer = prior_manifest.get("previous_current")
+        write_text(baseline, stable_json({"manifest": str(baseline_manifest)}))
+    print(f"APPLIED revision={timestamp}; enable plugin directory in CCR Extensions, then restart Codex and CCR")
 
 
 def latest_manifest(codex_home: Path) -> tuple[Path, dict]:
@@ -334,12 +383,18 @@ def rollback(data: dict) -> None:
         elif path.is_dir() and path.name == plugin_id: shutil.rmtree(path)
     current = codex_home / "deployment-package-state" / "current.json"
     if manifest.get("previous_current"): write_text(current, stable_json(manifest["previous_current"]))
-    else: current.unlink(missing_ok=True)
+    else:
+        current.unlink(missing_ok=True)
+        (codex_home / "deployment-package-state" / "baseline.json").unlink(missing_ok=True)
     print(f"ROLLED BACK {manifest_path.parent.name}")
 
 
 def uninstall(data: dict) -> None:
-    package = package_config(); codex_home = resolve_home(data["deployment"]["codex_home"], "codex"); _, manifest = latest_manifest(codex_home)
+    package = package_config(); codex_home = resolve_home(data["deployment"]["codex_home"], "codex"); _, current_manifest = latest_manifest(codex_home)
+    baseline_pointer = codex_home / "deployment-package-state" / "baseline.json"
+    if not baseline_pointer.is_file(): raise PackageError("installation baseline is missing; uninstall refused")
+    baseline_path = Path(json.loads(baseline_pointer.read_text(encoding="utf-8"))["manifest"])
+    manifest = json.loads(baseline_path.read_text(encoding="utf-8"))
     config, ccr_home = codex_home / "config.toml", resolve_home(data["deployment"]["ccr_home"], "ccr")
     created_set = set(manifest["created"])
     if config.is_file():
@@ -347,15 +402,10 @@ def uninstall(data: dict) -> None:
         if not found: raise PackageError("managed marker missing; uninstall refused")
         if str(config) in created_set and not cleaned.strip(): config.unlink()
         else: write_text(config, cleaned.rstrip() + "\n")
-    gateway = ccr_home / "gateway.config.json"; plugin_target = ccr_home / "plugins" / package["plugin_id"]; plugin_key, module_path = plugin_registration(package, plugin_target)
     for item in manifest["created"] + manifest["modified"]:
         path = Path(item)
-        if path == gateway and path.is_file():
-            expected = manifest["installed_hashes"].get(item)
-            if expected and artifact_hash(path) != expected: raise PackageError(f"CCR config changed: {path}")
-            value = json.loads(path.read_text(encoding="utf-8")); value["plugins"] = [x for x in value.get("plugins", []) if not (isinstance(x, dict) and x.get("key") == plugin_key and x.get("modulePath") == module_path)]; write_text(path, stable_json(value)); continue
         if path == config or not path.exists(): continue
-        expected = manifest["installed_hashes"].get(item)
+        expected = current_manifest["installed_hashes"].get(item)
         if not expected or artifact_hash(path) != expected: raise PackageError(f"managed artifact changed: {path}")
         if item in created_set:
             if path.is_file(): path.unlink()
@@ -369,7 +419,8 @@ def uninstall(data: dict) -> None:
                 shutil.rmtree(path); shutil.copytree(source, path)
             else: shutil.copy2(source, path)
     (codex_home / "deployment-package-state" / "current.json").unlink(missing_ok=True)
-    print("UNINSTALLED package-owned artifacts only")
+    baseline_pointer.unlink(missing_ok=True)
+    print("UNINSTALLED to first-install baseline; CCR runtime configuration was never modified")
 
 
 def secret_scan() -> list[str]:
@@ -388,10 +439,17 @@ def secret_scan() -> list[str]:
 
 def validate_template(profile: dict) -> None:
     model = json.loads((ROOT / "profile" / profile["id"] / profile["model_template"]).read_text(encoding="utf-8")).get("models", [None])[0]
-    required = {"slug", "apply_patch_tool_type", "supports_search_tool", "web_search_tool_type", "multi_agent_version", "visibility", "supported_in_api", "priority", "truncation_policy", "support_verbosity", "experimental_supported_tools", "auto_review_model_override", "context_window", "supported_reasoning_levels", "base_instructions"}
-    if not isinstance(model, dict) or required - set(model): raise PackageError("native ModelInfo baseline fields missing")
+    if not isinstance(model, dict) or set(model) != MODELINFO_TEMPLATE_KEYS:
+        missing = sorted(MODELINFO_TEMPLATE_KEYS - set(model or {})); extra = sorted(set(model or {}) - MODELINFO_TEMPLATE_KEYS)
+        raise PackageError(f"native ModelInfo template keys invalid; missing={missing} extra={extra}")
     if model["apply_patch_tool_type"] != "freeform" or model["slug"] != "__MODEL_SELECTOR__": raise PackageError("native ModelInfo baseline invalid")
-    if {"supports_web_search", "supports_multi_agent", "compatibility_profile", "effective_model_identity"} & set(model): raise PackageError("obsolete/deployment-only ModelInfo fields present")
+    messages = model.get("model_messages")
+    if not isinstance(messages, dict) or set(messages) != {"instructions_template"} or not messages["instructions_template"].strip():
+        raise PackageError("model_messages.instructions_template must be the canonical non-empty instruction source")
+    if model["base_instructions"] != messages["instructions_template"]:
+        raise PackageError("legacy base_instructions alias must match model_messages.instructions_template")
+    if model["supports_search_tool"] is not False:
+        raise PackageError("worker web search must remain disabled by this profile")
 
 
 def validate() -> None:
@@ -414,12 +472,12 @@ def validate() -> None:
         for role in roles:
             value = load_toml(one / "agents" / f"{role['id']}.toml")
             if value["model_provider"] != package["local_provider_id"] or "network_access" in value: raise PackageError("role provider/network invalid")
-            if value.get("sandbox_workspace_write", {}).get("network_access") is not False: raise PackageError("role network denial missing")
+            if value.get("sandbox_workspace_write", {}).get("network_access") is not role["sandbox_network_access"]: raise PackageError("role sandbox network policy was not rendered")
         once = merge_managed_block('model = "official-root"\n', fragment, package); twice = merge_managed_block(once, fragment, package)
         if once != twice or "official-root" not in twice: raise PackageError("apply idempotence/preservation failed")
-    probe = probe_ccr_adapter(data, ROOT / "tests" / "fixtures")
-    if probe["status"] != "PASS": raise PackageError(f"CCR contract failed: {probe['detail']}")
-    print("VALIDATION PASS: sources ModelInfo provider network secrets determinism idempotence CCR contract")
+    probe = probe_ccr_plugin_package(data)
+    if probe["status"] != "PASS": raise PackageError(f"CCR plugin package contract failed: {probe['detail']}")
+    print("VALIDATION PASS: sources ModelInfo provider sandbox-network secrets determinism merge plugin-package contract")
 
 
 def codex_contract(data: dict) -> None:
@@ -433,6 +491,8 @@ def codex_contract(data: dict) -> None:
             shutil.copy2(rendered / "agents" / f"{role}.toml", home / "agents" / f"{role}.toml")
         child_env = dict(os.environ); child_env["CODEX_HOME"] = str(home)
         fragment = (rendered / "config.fragment.toml").read_text(encoding="utf-8")
+        rendered_catalog = json.loads((rendered / "models.worker.json").read_text(encoding="utf-8"))
+        expected_instructions = rendered_catalog["models"][0]["model_messages"]["instructions_template"]
         # CODEX-SENSITIVE: 0.146.0 rejects --strict-config on `debug`; `--help`
         # does not load config, and `doctor` performs network checks. The offline
         # consumer contract therefore uses debug prompt-input per role, while
@@ -447,6 +507,8 @@ def codex_contract(data: dict) -> None:
         catalog = json.loads(result.stdout); models = catalog if isinstance(catalog, list) else catalog.get("models", []); selector = data["worker"]["model_selector"]
         target = next((x for x in models if x.get("slug") == selector), None)
         if not target or target.get("auto_review_model_override") != selector or target.get("apply_patch_tool_type") != "freeform": raise PackageError("Codex loaded contract differs")
+        if target.get("model_messages", {}).get("instructions_template") != expected_instructions:
+            raise PackageError("Codex loaded model_messages instructions differ")
     print("CODEX CONTRACT PASS: seven role configs and native model catalog loaded offline")
 
 
@@ -456,7 +518,7 @@ def doctor(data: dict, live: bool, confirm_cost: bool) -> None:
     try:
         with socket.create_connection((hostname, int(port or "80")), timeout=1): port_status = "reachable"
     except Exception: port_status = "not-reachable"
-    package = package_config(); report = {"powershell": command_version("pwsh") or "missing", "python": command_version("python") or sys.version.split()[0], "node": command_version("node") or "missing", "codex": value["detected"]["codex"], "ccr": value["detected"]["ccr"], "ccr_version_role": "audit-only; contract decides compatibility", "ccr_port": port_status, "required_env_present": bool(os.environ.get(env_name)), "required_env_name": env_name, "model_catalog": (codex_home / "models.worker.json").is_file(), "registered_roles": all((codex_home / "agents" / f"{r}.toml").is_file() for r in roles_from(package)), "compatibility_plugin": (ccr_home / "plugins" / package["plugin_id"]).is_dir(), "ccr_contract": value["ccr_contract"], "mode": "live" if live else "offline"}
+    package = package_config(); report = {"powershell": command_version("pwsh") or "missing", "python": command_version("python") or sys.version.split()[0], "node": command_version("node") or "missing", "codex": value["detected"]["codex"], "ccr": value["detected"]["ccr"], "ccr_version_role": "audit-only", "ccr_port": port_status, "required_env_present": bool(os.environ.get(env_name)), "required_env_name": env_name, "model_catalog": (codex_home / "models.worker.json").is_file(), "registered_roles": all((codex_home / "agents" / f"{r}.toml").is_file() for r in roles_from(package)), "compatibility_plugin_copied": (ccr_home / "plugins" / package["plugin_id"]).is_dir(), "ccr_plugin_activation": "OPERATOR_CONFIRM_REQUIRED", "ccr_plugin_package_contract": value["ccr_plugin_package_contract"], "mode": "live" if live else "offline"}
     if live:
         if not confirm_cost: raise PackageError("live mode may consume tokens; pass --confirm-cost")
         key = os.environ.get(env_name)
@@ -467,6 +529,7 @@ def doctor(data: dict, live: bool, confirm_cost: bool) -> None:
             with urllib.request.urlopen(request, timeout=60) as response: report["live_http_status"], report["live_response_valid"] = response.status, 200 <= response.status < 300
         except urllib.error.HTTPError as error: report["live_http_status"], report["live_response_valid"] = error.code, False
         except Exception as error: report["live_error_type"], report["live_response_valid"] = type(error).__name__, False
+        report["live_namespace_compatibility"] = "CONFIRMED" if report.get("live_response_valid") else "NOT_CONFIRMED"
     print(stable_json(report), end="")
 
 

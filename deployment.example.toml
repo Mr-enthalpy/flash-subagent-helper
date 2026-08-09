@@ -7,12 +7,8 @@ backup_root = "auto"
 
 [worker]
 model_selector = "<USER_CONFIGURE>"
-profile = "deepseek-flash-responses"
 effective_model_identity = "<USER_VERIFY>"
 
 [gateway]
 base_url = "http://127.0.0.1:3456/v1"
 client_key_env = "CCR_CODEX_WORKER_KEY"
-
-[ccr]
-adapter = "gateway_plugin_v1"

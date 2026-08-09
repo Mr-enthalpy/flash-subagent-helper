@@ -1,6 +1,6 @@
 {
   "profile_id": "fixture-profile",
-  "profile_version": "1.0.0",
+  "profile_version": "1.1.0",
   "model_selectors": ["fixture-provider/fixture-model"],
   "responses_endpoint_suffix": "/responses",
   "unsupported_tool_types": ["namespace"],

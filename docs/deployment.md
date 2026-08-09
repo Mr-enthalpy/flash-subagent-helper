@@ -9,7 +9,10 @@
 4. Run `bootstrap.ps1` to collect non-secret parameters.
 5. Run offline doctor and deployment dry-run.
 6. Review `DEPLOYMENT PLAN`, then run `deploy.ps1 -Apply`.
-7. Run `validate.ps1`, fully restart Codex, and optionally run paid live doctor.
+7. In CCR Desktop Extensions, install/enable the copied
+   `responses-tool-capability-compat` directory.
+8. Run `validate.ps1`, fully restart Codex and CCR, and optionally run paid live
+   doctor.
 
 ## Existing machine
 
@@ -21,17 +24,28 @@ auth, MCP, other agents/tools, and unrelated instructions are preserved.
 ## Plan and compatibility states
 
 `deploy.ps1` is dry-run by default. `-Apply` writes only after all structural
-preflight checks and the executable `gateway_plugin_v1` contract pass. CCR's
-version is reported for audit, but no version string can produce `VERIFIED` and
-there is no compatibility bypass. A failed contract reports `INCOMPATIBLE`.
+preflight checks and the packaged extension contract pass. That probe loads the
+manifest module, calls `setup()`, follows its core-gateway registration, and
+exercises `transformRequest` with a provider-neutral request. It does **not**
+claim that the installed CCR has activated the extension. Offline status is
+therefore `MANUAL_ACTIVATION_REQUIRED`, not `VERIFIED`.
 
 The only deployment choices are the CCR local URL, the environment-variable
 name containing its local client key, the CCR model selector, and optionally an
 operator-verified effective model identity. `ccr_flash_worker`, the profile,
-and adapter are package-controlled defaults. The renderer rejects non-loopback
+and manual activation policy are package-controlled. The renderer rejects non-loopback
 gateway URLs so a CCR local client credential cannot be sent to a remote host.
 
 Revision manifests record paths, backup paths, package version, timestamp, and
-artifact hashes—not secret values. Rollback restores only the preceding package
-revision. Uninstall removes only unchanged package-owned artifacts and its
-marked block; it never runs Git reset/clean or deletes unknown configuration.
+artifact hashes—not secret values. A converged apply is a NOOP and creates no
+revision. Rollback restores only the preceding package revision. Uninstall
+restores the first-install baseline and removes only unchanged package-owned
+artifacts and its marked block; it never runs Git reset/clean or deletes unknown
+configuration.
+
+## 0.2 to 0.3 lifecycle boundary
+
+Version 0.2 managed an internal CCR runtime file; 0.3 deliberately does not.
+The 0.3 deployer refuses an in-place 0.2 lifecycle upgrade. Use the original
+0.2 checkout to uninstall its deployment, confirm CCR runtime configuration is
+restored, then deploy 0.3 and enable the extension through CCR Desktop.

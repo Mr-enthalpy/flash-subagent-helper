@@ -16,4 +16,6 @@ This repository does not:
 
 Users must review every apply plan, verify the effective provider/model identity,
 keep credentials outside this repository, restart Codex when required, and rerun
-offline plus controlled live acceptance after version changes.
+offline plus controlled live acceptance after version changes. Users must also
+enable the copied compatibility extension through CCR Desktop Extensions; the
+repository never mutates CCR's internal runtime gateway configuration.

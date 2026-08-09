@@ -26,17 +26,14 @@ backup_root = "auto"
 
 [worker]
 model_selector = "$model"
-profile = "deepseek-flash-responses"
 effective_model_identity = "$identity"
 
 [gateway]
 base_url = "$endpoint"
 client_key_env = "$envName"
-
-[ccr]
-adapter = "gateway_plugin_v1"
 "@
 [IO.File]::WriteAllText($Output, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
 Write-Host "Created local, git-ignored deployment configuration: $Output"
 Write-Host "Required environment variable present: $present (value not read or printed)"
 Write-Host 'Configure the upstream provider credential in CCR outside this repository.'
+Write-Host 'After deploy, use CCR Extensions to install/enable the copied plugin directory.'

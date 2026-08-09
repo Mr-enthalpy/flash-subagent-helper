@@ -3,7 +3,7 @@
   "title": "Local deployment configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "deployment", "worker", "gateway", "ccr"],
+  "required": ["schema_version", "deployment", "worker", "gateway"],
   "properties": {
     "schema_version": {"const": 2},
     "deployment": {
@@ -19,10 +19,9 @@
     "worker": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["model_selector", "profile"],
+      "required": ["model_selector"],
       "properties": {
         "model_selector": {"type": "string", "minLength": 1},
-        "profile": {"const": "deepseek-flash-responses"},
         "effective_model_identity": {"type": "string"}
       }
     },
@@ -34,12 +33,6 @@
         "base_url": {"type": "string", "pattern": "^https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]+)?(?:/.*)?$"},
         "client_key_env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
       }
-    },
-    "ccr": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["adapter"],
-      "properties": {"adapter": {"const": "gateway_plugin_v1"}}
     }
   }
 }

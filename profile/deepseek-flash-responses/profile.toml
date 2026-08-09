@@ -1,12 +1,15 @@
 schema_version = 1
 id = "deepseek-flash-responses"
-version = "1.0.0"
+version = "1.1.0"
 
 # CODEX-SENSITIVE:
 # WHY: the adjacent JSON is a native ModelInfo template, not a family-capability
 # translation. VERIFIED AGAINST: Codex 0.146.0.
 # FAILURE SYMPTOM: catalog/config consumer contract fails or Guardian selects an
 # unavailable reviewer.
+# The template also emits deprecated top-level base_instructions solely for the
+# tested 0.146.0 client; current Codex promotes that compatibility alias into
+# model_messages. Remove it when the minimum client no longer needs it.
 codex_baseline = "0.146.0"
 model_template = "codex-model-template.json"
 

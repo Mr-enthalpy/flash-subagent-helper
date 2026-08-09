@@ -22,8 +22,9 @@ configured tool-choice fallback.
 ## PLUGIN TEST PASSES BUT LIVE REQUEST STILL FAILS
 
 Module tests do not prove registration in CCR's live pipeline. Check active CCR
-configuration, detected plugin mechanism, before/after tool counts, and a
-redacted summary of the final upstream body. Never log prompts or credentials.
+Desktop Extensions for the enabled plugin, then inspect before/after tool counts
+and a redacted summary of the final upstream body. The package never edits
+`gateway.config.json`. Never log prompts or credentials.
 
 ## CCR LOCAL AUTH vs UPSTREAM AUTH
 

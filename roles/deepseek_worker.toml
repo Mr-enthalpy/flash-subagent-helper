@@ -1,5 +1,5 @@
 id = "deepseek_worker"
 description = "General read-only DeepSeek worker."
 sandbox = "read-only"
-network = false
+sandbox_network_access = false
 instructions = "Perform bounded read-only work and return concise evidence. Do not delegate."

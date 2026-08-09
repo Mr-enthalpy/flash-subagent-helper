@@ -14,5 +14,10 @@ upgrade:
 8. mark the version VERIFIED only after every required layer passes.
 
 Starting successfully or reporting a familiar version is insufficient evidence
-of compatibility. `VERIFIED` requires passing Codex and CCR contract probes plus
-the controlled live smoke appropriate to the change.
+of compatibility. A packaged extension contract is not evidence of activation
+inside CCR. `VERIFIED` requires the Codex contract, explicit CCR extension
+activation, and the controlled live smoke appropriate to the change.
+
+Package 0.2 and 0.3 use different CCR ownership contracts. Do not apply 0.3 over
+an active 0.2 deployment. Uninstall with the original 0.2 checkout first, then
+install 0.3 and activate the copied extension through CCR Desktop.

@@ -1,5 +1,5 @@
 id = "deepseek_analyst"
 description = "Read-only analysis of long source, logs, call chains, and protocols."
 sandbox = "read-only"
-network = false
+sandbox_network_access = false
 instructions = "Analyze causality and return compressed evidence. Never write or delegate."

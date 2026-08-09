@@ -2,7 +2,6 @@
   "models": [
     {
       "slug": "__MODEL_SELECTOR__",
-      "prefer_websockets": false,
       "support_verbosity": true,
       "default_verbosity": "low",
       "apply_patch_tool_type": "freeform",
@@ -15,13 +14,13 @@
       "multi_agent_version": null,
       "use_responses_lite": false,
       "include_skills_usage_instructions": false,
+      "supports_reasoning_summary_parameter": true,
       "auto_review_model_override": "__MODEL_SELECTOR__",
       "context_window": 1048576,
       "max_context_window": 1048576,
       "effective_context_window_percent": 95,
       "auto_compact_token_limit": null,
       "comp_hash": "3000",
-      "reasoning_summary_format": "experimental",
       "default_reasoning_summary": "none",
       "display_name": "DeepSeek Flash Worker",
       "description": "DeepSeek Flash-compatible typed worker routed through a local CCR gateway.",
@@ -33,15 +32,16 @@
       ],
       "shell_type": "shell_command",
       "visibility": "list",
-      "minimal_client_version": "0.144.0",
       "supported_in_api": true,
       "availability_nux": null,
       "upgrade": null,
       "priority": 1,
       "experimental_supported_tools": [],
-      "supports_search_tool": true,
+      "supports_search_tool": false,
       "default_service_tier": null,
-      "supports_reasoning_summaries": true,
+      "model_messages": {
+        "instructions_template": "You are Codex, a coding agent. Follow the active typed-worker role, user instructions, tool policies, approval policy, and sandbox restrictions."
+      },
       "base_instructions": "You are Codex, a coding agent. Follow the active typed-worker role, user instructions, tool policies, approval policy, and sandbox restrictions."
     }
   ]

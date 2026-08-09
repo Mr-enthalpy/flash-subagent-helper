@@ -7,12 +7,8 @@ backup_root = "auto"
 
 [worker]
 model_selector = "fixture-provider/fixture-model"
-profile = "deepseek-flash-responses"
 effective_model_identity = "fixture-deepseek-flash"
 
 [gateway]
 base_url = "http://127.0.0.1:3456/v1"
 client_key_env = "FIXTURE_CCR_CLIENT_KEY"
-
-[ccr]
-adapter = "gateway_plugin_v1"

@@ -48,7 +48,9 @@ cd codex-ccr-deepseek-worker-pool
 ```
 
 Review the dry-run plan before `-Apply`, restart Codex completely, then run an
-explicit paid smoke only if permitted:
+explicit paid smoke only if permitted. The deployer copies the CCR extension but
+does not edit CCR's internal runtime configuration: enable
+`responses-tool-capability-compat` in CCR Desktop **Extensions** before restart.
 
 ```powershell
 .\scripts\doctor.ps1 -Live -ConfirmCost
@@ -66,16 +68,20 @@ are stored here.
 ## Supported and tested versions
 
 See [VERSION_MATRIX.md](VERSION_MATRIX.md). Versions are audit evidence and
-upgrade triggers, not proof of compatibility. Apply requires the selected CCR
-adapter's executable contract probe to pass; there is no version bypass flag.
+upgrade triggers, not proof of compatibility. Apply requires the packaged
+extension contract to pass. That contract verifies the distributable module and
+registration shape. The operator confirms enablement in CCR Extensions; a
+controlled live smoke separately confirms the required namespace behavior.
 
 ## Deployment and validation
 
 The deployer merges one stable marked block containing the package-owned local
 provider and `[agents.*]` registrations. It preserves the official root model
 and provider, authentication, other agents, MCP servers, tools, and unrelated
-instructions. Same-name unmanaged objects are hard conflicts. Every apply
-writes a local revision manifest and backups outside the repository.
+instructions. Same-name unmanaged objects are hard conflicts. A changed apply
+writes a local revision manifest and backups outside the repository; an
+already-converged apply is a NOOP and creates no revision. Uninstall restores
+the first-install baseline, while rollback restores the preceding revision.
 
 - [Deployment guide](docs/deployment.md)
 - [Provider integration](docs/provider-integration.md)

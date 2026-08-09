@@ -1,7 +1,7 @@
 {
   "id": "responses-tool-capability-compat",
   "name": "Responses Tool Capability Compatibility",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Profile-driven filtering of unsupported OpenAI Responses tool types.",
   "module": "index.cjs",
   "surfaces": {"apps": false, "gateway": true, "provider": false},
