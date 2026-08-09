@@ -1,0 +1,20 @@
+schema_version = 1
+id = "deepseek-flash-responses"
+version = "1.0.0"
+
+# CODEX-SENSITIVE:
+# WHY: the adjacent JSON is a native ModelInfo template, not a family-capability
+# translation. VERIFIED AGAINST: Codex 0.146.0.
+# FAILURE SYMPTOM: catalog/config consumer contract fails or Guardian selects an
+# unavailable reviewer.
+codex_baseline = "0.146.0"
+model_template = "codex-model-template.json"
+
+# COMPAT-SENSITIVE:
+# WHY: these are the only route behavior differences consumed by the CCR plugin.
+# VERIFIED AGAINST: provider-independent 19/7 and 12/0 Responses fixtures.
+# FAILURE SYMPTOM: RESPONSES_FEATURE_NOT_SUPPORTED tool.namespace or an invalid
+# tool_choice reaches upstream.
+responses_endpoint_suffix = "/responses"
+unsupported_tool_types = ["namespace"]
+tool_choice_fallback = "auto"

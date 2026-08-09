@@ -8,9 +8,13 @@ invariants, and generated consistency.
 
 ## LOCAL — no upstream call
 
-With local Codex/CCR installed: discovery, version/interface detection, role and
-catalog registration, local credential *presence* (not value), plugin/profile
-load, and gateway plugin registration structure.
+With local Codex/CCR installed: discovery, version reporting, role and catalog
+registration, local credential *presence* (not value), plugin load, and the CCR
+adapter contract. Run `codex-contract-smoke.ps1` to place the render in a
+temporary isolated Codex home, consume every role with `codex debug prompt-input`,
+and load the catalog with `codex debug models`. Current Codex rejects
+`--strict-config` on debug commands, so exact-key allowlists provide the unknown-
+field guard. The contract performs no upstream request.
 
 ## COMPATIBILITY — mock request
 

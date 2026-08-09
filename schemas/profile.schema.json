@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DeepSeek Flash Responses profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "id", "version", "codex_baseline", "model_template",
+    "responses_endpoint_suffix", "unsupported_tool_types", "tool_choice_fallback"
+  ]
+}

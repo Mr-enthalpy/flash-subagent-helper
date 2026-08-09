@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 
 [deployment]
 codex_home = "auto"
@@ -6,18 +6,13 @@ ccr_home = "auto"
 backup_root = "auto"
 
 [worker]
-model_family = "deepseek_flash"
-compatibility_profile = "deepseek_responses_v4"
-provider_id = "<USER_CONFIGURE>"
 model_selector = "<USER_CONFIGURE>"
+profile = "deepseek-flash-responses"
 effective_model_identity = "<USER_VERIFY>"
 
 [gateway]
-local_base_url = "http://127.0.0.1:3456/v1"
+base_url = "http://127.0.0.1:3456/v1"
 client_key_env = "CCR_CODEX_WORKER_KEY"
-route_id = "<USER_CONFIGURE>"
 
-[deployment_policy]
-allow_unverified_ccr = false
-install_plugin = true
-register_agents = true
+[ccr]
+adapter = "gateway_plugin_v1"

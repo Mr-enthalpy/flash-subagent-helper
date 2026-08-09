@@ -11,17 +11,13 @@ function Ask([string]$Prompt, [string]$Default) {
 $codexHome = Ask 'Codex home' 'auto'
 $ccrHome = Ask 'CCR home' 'auto'
 $endpoint = Ask 'CCR local endpoint' 'http://127.0.0.1:3456/v1'
-$family = Ask 'Worker model family' 'deepseek_flash'
-$provider = Ask 'CCR provider id/display' '<USER_CONFIGURE>'
-$route = Ask 'CCR route id' '<USER_CONFIGURE>'
-$model = Ask 'Upstream model selector' '<USER_CONFIGURE>'
+$model = Ask 'CCR model selector for DeepSeek Flash' '<USER_CONFIGURE>'
 $identity = Ask 'Effective model identity (verify with provider)' '<USER_VERIFY>'
-$profile = Ask 'Compatibility profile' 'deepseek_responses_v4'
 $envName = Ask 'CCR client key environment variable NAME' 'CCR_CODEX_WORKER_KEY'
 $present = -not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($envName))
 
 $content = @"
-schema_version = 1
+schema_version = 2
 
 [deployment]
 codex_home = "$codexHome"
@@ -29,21 +25,16 @@ ccr_home = "$ccrHome"
 backup_root = "auto"
 
 [worker]
-model_family = "$family"
-compatibility_profile = "$profile"
-provider_id = "$provider"
 model_selector = "$model"
+profile = "deepseek-flash-responses"
 effective_model_identity = "$identity"
 
 [gateway]
-local_base_url = "$endpoint"
+base_url = "$endpoint"
 client_key_env = "$envName"
-route_id = "$route"
 
-[deployment_policy]
-allow_unverified_ccr = false
-install_plugin = true
-register_agents = true
+[ccr]
+adapter = "gateway_plugin_v1"
 "@
 [IO.File]::WriteAllText($Output, $content.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
 Write-Host "Created local, git-ignored deployment configuration: $Output"

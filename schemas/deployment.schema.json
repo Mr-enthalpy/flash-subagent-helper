@@ -2,11 +2,44 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Local deployment configuration",
   "type": "object",
-  "required": ["schema_version", "deployment", "worker", "gateway"],
+  "additionalProperties": false,
+  "required": ["schema_version", "deployment", "worker", "gateway", "ccr"],
   "properties": {
-    "schema_version": {"const": 1},
-    "deployment": {"type": "object"},
-    "worker": {"type": "object"},
-    "gateway": {"type": "object"}
+    "schema_version": {"const": 2},
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codex_home", "ccr_home"],
+      "properties": {
+        "codex_home": {"type": "string", "minLength": 1},
+        "ccr_home": {"type": "string", "minLength": 1},
+        "backup_root": {"type": "string", "minLength": 1}
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_selector", "profile"],
+      "properties": {
+        "model_selector": {"type": "string", "minLength": 1},
+        "profile": {"const": "deepseek-flash-responses"},
+        "effective_model_identity": {"type": "string"}
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base_url", "client_key_env"],
+      "properties": {
+        "base_url": {"type": "string", "pattern": "^https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]+)?(?:/.*)?$"},
+        "client_key_env": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"}
+      }
+    },
+    "ccr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter"],
+      "properties": {"adapter": {"const": "gateway_plugin_v1"}}
+    }
   }
 }

@@ -9,7 +9,17 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["slug", "context_window", "auto_review_model_override"]
+        "required": [
+          "slug", "context_window", "auto_review_model_override",
+          "apply_patch_tool_type", "supports_search_tool", "web_search_tool_type",
+          "multi_agent_version", "visibility", "supported_in_api", "priority",
+          "truncation_policy", "support_verbosity", "experimental_supported_tools",
+          "base_instructions"
+        ],
+        "properties": {
+          "apply_patch_tool_type": {"const": "freeform"},
+          "auto_review_model_override": {"type": "string", "minLength": 1}
+        }
       }
     }
   }

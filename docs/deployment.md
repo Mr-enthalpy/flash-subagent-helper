@@ -20,10 +20,16 @@ auth, MCP, other agents/tools, and unrelated instructions are preserved.
 
 ## Plan and compatibility states
 
-`deploy.ps1` is dry-run by default. `-Apply` writes only after backup. An unknown
-CCR version reports `UNVERIFIED CCR VERSION` and aborts unless the user adds
-`-AllowUnverifiedCcr` after manually validating the hook. `INCOMPATIBLE` must
-never be overridden.
+`deploy.ps1` is dry-run by default. `-Apply` writes only after all structural
+preflight checks and the executable `gateway_plugin_v1` contract pass. CCR's
+version is reported for audit, but no version string can produce `VERIFIED` and
+there is no compatibility bypass. A failed contract reports `INCOMPATIBLE`.
+
+The only deployment choices are the CCR local URL, the environment-variable
+name containing its local client key, the CCR model selector, and optionally an
+operator-verified effective model identity. `ccr_flash_worker`, the profile,
+and adapter are package-controlled defaults. The renderer rejects non-loopback
+gateway URLs so a CCR local client credential cannot be sent to a remote host.
 
 Revision manifests record paths, backup paths, package version, timestamp, and
 artifact hashes—not secret values. Rollback restores only the preceding package

@@ -10,7 +10,9 @@ upgrade:
 5. run offline/local doctor;
 6. run a controlled, explicitly authorized live read-only and isolated-write
    smoke, including Guardian auto-review, receipt, independent audit, cleanup;
-7. update `VERSION_MATRIX.md` and `compatibility.lock.toml`;
+7. update `VERSION_MATRIX.md` and the profile version/baseline;
 8. mark the version VERIFIED only after every required layer passes.
 
-Starting successfully is insufficient evidence of compatibility.
+Starting successfully or reporting a familiar version is insufficient evidence
+of compatibility. `VERIFIED` requires passing Codex and CCR contract probes plus
+the controlled live smoke appropriate to the change.

@@ -1,7 +1,8 @@
 "use strict";
 
 const path = require("node:path");
-const CORE_PLUGIN_KEY = "responses-tool-capability-compat-core";
+const manifest = require("./plugin.json");
+const CORE_PLUGIN_KEY = `${manifest.id}-core`;
 
 module.exports = {
   setup() {
@@ -12,9 +13,5 @@ module.exports = {
         }
       }
     };
-  },
-  adapters: {
-    providerTransformer: { entry: path.join(__dirname, "gateway-plugin.cjs") },
-    customRouter: { entry: path.join(__dirname, "router-adapter.cjs") }
   }
 };

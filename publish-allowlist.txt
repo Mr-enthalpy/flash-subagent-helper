@@ -6,13 +6,11 @@ LICENSE
 README.md
 USER_RESPONSIBILITIES.md
 VERSION_MATRIX.md
-compatibility.lock.toml
-compatibility/**
 deployment.example.toml
 docs/**
-model-families/**
 package.toml
 plugins/**
+profile/**
 publish-allowlist.txt
 roles/**
 rules/**

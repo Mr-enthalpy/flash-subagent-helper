@@ -1,14 +1,11 @@
 # Provider Integration Guide
 
-To add a CCR upstream target, supply these non-secret facts in
+To add a CCR upstream target, supply only these non-secret facts in
 `deployment.local.toml`:
 
-- CCR provider id/display name;
-- local CCR endpoint and route id;
-- upstream model selector;
-- independently verified effective model identity;
-- supported protocol;
-- selected compatibility profile;
+- local CCR endpoint;
+- CCR model selector;
+- optionally, an independently verified effective model identity;
 - the *name* of the local client-key environment variable.
 
 Configure the upstream endpoint and credential directly in CCR outside this
@@ -16,8 +13,10 @@ repository. Never pass secret values as script arguments or write them to the
 deployment file. Confirm that the route actually reaches a DeepSeek Flash-
 compatible deployment; similar display names are not proof of identity.
 
-Compatibility is selected by observed capability, not provider name. A new
-provider needing the same tool-type policy reuses `deepseek_responses_v4`; a
-different capability set receives a new versioned profile and fixtures.
+Codex always uses `model_providers.ccr_flash_worker`; an upstream provider id is
+never a Codex deployment input. Compatibility is selected by observed behavior,
+not provider name. A new provider requires no core change when its CCR route
+satisfies `deepseek-flash-responses`. A materially different capability set
+should first be proven with fixtures; only then is a second profile justified.
 
 See [provider-neutral example](providers/example-provider.md).

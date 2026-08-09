@@ -1,6 +1,0 @@
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Responses compatibility profile",
-  "type": "object",
-  "required": ["id", "version", "client_protocol", "unsupported_tool_types"]
-}

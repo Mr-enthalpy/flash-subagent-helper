@@ -14,14 +14,16 @@
 
 ```text
 Persistent intent
-  -> declarative model-family, role, compatibility, and deployment configuration
+  -> seven role files + one versioned DeepSeek Flash Responses profile
   -> deterministic renderer and ownership-aware deployer
-  -> local Codex typed roles + model catalog + CCR compatibility plugin
+  -> Codex root (preserved) + fixed local provider ccr_flash_worker
+  -> CCR route + provider selected outside Codex
   -> OpenAI Responses-compatible DeepSeek Flash deployment
 ```
 
-Core logic is provider-independent. Provider and route differences are limited
-to `deployment.local.toml`, which is git-ignored. See [architecture](docs/architecture.md).
+The Codex layer never receives an upstream provider id. It always uses the
+package-owned `ccr_flash_worker`; provider credentials and routes remain CCR
+responsibilities. See [architecture](docs/architecture.md).
 
 ## Requirements
 
@@ -42,6 +44,7 @@ cd codex-ccr-deepseek-worker-pool
 .\scripts\deploy.ps1
 .\scripts\deploy.ps1 -Apply
 .\scripts\validate.ps1
+.\scripts\codex-contract-smoke.ps1
 ```
 
 Review the dry-run plan before `-Apply`, restart Codex completely, then run an
@@ -62,17 +65,17 @@ are stored here.
 
 ## Supported and tested versions
 
-See [VERSION_MATRIX.md](VERSION_MATRIX.md) and `compatibility.lock.toml`. Unknown
-CCR versions are `UNVERIFIED` and real apply aborts unless the user supplies an
-explicit override after review.
+See [VERSION_MATRIX.md](VERSION_MATRIX.md). Versions are audit evidence and
+upgrade triggers, not proof of compatibility. Apply requires the selected CCR
+adapter's executable contract probe to pass; there is no version bypass flag.
 
 ## Deployment and validation
 
-The deployer merges a stable, marked `[agents.*]` block into the Codex user
-configuration. It preserves the official root model/provider, authentication,
-other agents, MCP servers, tools, and unrelated instructions. Same-name
-unmanaged agents are a hard conflict. Every apply writes a local revision
-manifest and backups outside the repository.
+The deployer merges one stable marked block containing the package-owned local
+provider and `[agents.*]` registrations. It preserves the official root model
+and provider, authentication, other agents, MCP servers, tools, and unrelated
+instructions. Same-name unmanaged objects are hard conflicts. Every apply
+writes a local revision manifest and backups outside the repository.
 
 - [Deployment guide](docs/deployment.md)
 - [Provider integration](docs/provider-integration.md)

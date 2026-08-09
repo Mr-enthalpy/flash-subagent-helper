@@ -1,11 +1,15 @@
-schema_version = 1
+schema_version = 2
 package_id = "codex-ccr-deepseek-worker-pool"
-package_version = "0.1.0"
-managed_marker = "codex-ccr-deepseek-worker-pool:v1"
-default_model_family = "deepseek_flash"
-default_compatibility_profile = "deepseek_responses_v4"
-
-[ownership]
-codex_config_sections = ["agents.deepseek_scout", "agents.deepseek_analyst", "agents.deepseek_auditor", "agents.deepseek_coder", "agents.deepseek_test_coder", "agents.deepseek_config_coder", "agents.deepseek_worker"]
-generated_paths = ["agents", "models.worker.json", "deployment-manifest.json"]
-ccr_plugin = "responses-tool-capability-compat"
+package_version = "0.2.0"
+managed_marker = "codex-ccr-deepseek-worker-pool:v2"
+local_provider_id = "ccr_flash_worker"
+plugin_id = "responses-tool-capability-compat"
+roles = [
+  "deepseek_scout",
+  "deepseek_analyst",
+  "deepseek_auditor",
+  "deepseek_coder",
+  "deepseek_test_coder",
+  "deepseek_config_coder",
+  "deepseek_worker",
+]
