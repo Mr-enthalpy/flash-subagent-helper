@@ -1,0 +1,28 @@
+# Local deployment configuration and generated state
+deployment.local.toml
+.env
+.secrets/
+out/
+.work/
+backups/
+revisions/
+*.local.*
+
+# Runtime and credential material
+auth.json
+cap_sid
+*.sqlite
+*.sqlite-*
+sessions/
+logs/
+tmp/
+.tmp/
+attachments/
+models_cache.json
+.codex-global-state.json*
+*.bak
+*.backup
+*.before-*
+__pycache__/
+*.pyc
+node_modules/

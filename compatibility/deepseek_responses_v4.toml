@@ -1,0 +1,17 @@
+schema_version = 1
+id = "deepseek_responses_v4"
+version = "1.0.0"
+client_protocol = "openai_responses"
+upstream_protocol = "openai_responses"
+unsupported_tool_types = ["namespace"]
+namespace_tool_choice_fallback = "auto"
+preserve_tool_types = ["function", "custom"]
+apply_patch_compatible = true
+auto_review_model_policy = "worker_model_selector"
+catalog_load_lifecycle = "startup"
+restart_required_after_catalog_change = true
+
+[ccr_adapter]
+plugin_id = "responses-tool-capability-compat"
+preferred_mechanisms = ["provider_transformer", "custom_router"]
+unknown_version_policy = "abort_unless_explicit_override"

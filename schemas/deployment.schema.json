@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Local deployment configuration",
+  "type": "object",
+  "required": ["schema_version", "deployment", "worker", "gateway"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "deployment": {"type": "object"},
+    "worker": {"type": "object"},
+    "gateway": {"type": "object"}
+  }
+}

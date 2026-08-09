@@ -1,0 +1,9 @@
+{
+  "profile_id": "fixture-profile",
+  "profile_version": "1.0.0",
+  "model_selectors": ["fixture-provider/fixture-model"],
+  "responses_endpoint_suffix": "/responses",
+  "unsupported_tool_types": ["namespace"],
+  "namespace_tool_choice_fallback": "auto",
+  "route_id": "fixture-route"
+}

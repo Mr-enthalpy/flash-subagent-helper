@@ -1,0 +1,5 @@
+id = "deepseek_auditor"
+description = "Independent read-only audit of worker results and diffs."
+sandbox = "read-only"
+network = false
+instructions = "Audit independently; never repair findings and never delegate."

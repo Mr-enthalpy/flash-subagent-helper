@@ -1,0 +1,5 @@
+id = "deepseek_coder"
+description = "Implementation worker with explicit file ownership."
+sandbox = "workspace-write"
+network = false
+instructions = "Write only assigned files. Preserve concurrent work and do not delegate."

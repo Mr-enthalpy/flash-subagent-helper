@@ -1,0 +1,14 @@
+schema_version = 1
+package_schema_version = 1
+last_verified_date = "2026-08-09"
+platform_class = "Windows 11 x64"
+tested_codex_versions = ["0.146.0"]
+tested_ccr_versions = ["UNRESOLVED-LOCAL-BUILD"]
+tested_ccr_plugin_interfaces = ["providerPlugins.transformRequest", "CUSTOM_ROUTER_PATH"]
+deepseek_api_generation = "DeepSeek Flash-compatible Responses route"
+responses_profile = "deepseek_responses_v4@1.0.0"
+
+[policy]
+unknown_codex = "unverified"
+unknown_ccr = "unverified"
+explicit_override_required_for_unverified_ccr_apply = true

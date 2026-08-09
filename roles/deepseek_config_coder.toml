@@ -1,0 +1,5 @@
+id = "deepseek_config_coder"
+description = "Narrow configuration-maintenance worker."
+sandbox = "workspace-write"
+network = false
+instructions = "Modify only explicitly assigned configuration files. Do not delegate."
