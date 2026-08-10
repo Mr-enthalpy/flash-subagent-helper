@@ -51,6 +51,8 @@ Review the dry-run plan before `-Apply`, restart Codex completely, then run an
 explicit paid smoke only if permitted. The deployer copies the CCR extension but
 does not edit CCR's internal runtime configuration: enable
 `responses-tool-capability-compat` in CCR Desktop **Extensions** before restart.
+For the tested CCR 3.0.20 UI, choose the copied plugin **directory**; its
+`plugin.json` resolves the module to `index.cjs`. See the deployment guide.
 
 ```powershell
 .\scripts\doctor.ps1 -Live -ConfirmCost

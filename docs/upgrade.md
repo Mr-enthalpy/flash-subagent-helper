@@ -21,3 +21,14 @@ activation, and the controlled live smoke appropriate to the change.
 Package 0.2 and 0.3 use different CCR ownership contracts. Do not apply 0.3 over
 an active 0.2 deployment. Uninstall with the original 0.2 checkout first, then
 install 0.3 and activate the copied extension through CCR Desktop.
+
+Patch releases must not add or remove managed roles, change the managed marker
+or local provider id, or change the managed plugin path/id. Those changes alter
+the managed target set and require a minor version bump. The deployer records
+the semantic set in each revision manifest and fails closed on a same-minor
+mismatch; it does not attempt an automatic ownership migration.
+
+When the Codex sandbox/network schema changes, re-check that the intentional
+read-only defense-in-depth declaration is still accepted and whether Codex now
+offers a more precise read-only network-deny field or a documented stable
+fail-closed contract.

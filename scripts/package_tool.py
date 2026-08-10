@@ -10,7 +10,7 @@ CCR-SENSITIVE:
 WHY: plugin registration is an external CCR Desktop interface. This package
 validates its own setup/registration shape but deliberately does not mutate
 CCR's internal runtime gateway configuration.
-VERIFIED AGAINST: CCR Desktop Extensions folder installation, 2026-08-10.
+VERIFIED AGAINST: CCR Desktop 3.0.20 Extensions folder installation, 2026-08-10.
 FAILURE SYMPTOM: the package contract passes but CCR does not show or enable the
 extension; live traffic remains untransformed until the operator enables it.
 """
@@ -30,20 +30,13 @@ DEPLOYMENT_KEYS = {
 }
 PROFILE_KEYS = {"schema_version", "id", "version", "codex_baseline", "model_template", "responses_endpoint_suffix", "unsupported_tool_types", "tool_choice_fallback"}
 ROLE_KEYS = {"id", "description", "sandbox", "sandbox_network_access", "instructions"}
-MODELINFO_TEMPLATE_KEYS = {
-    "slug", "display_name", "description", "default_reasoning_level",
-    "supported_reasoning_levels", "shell_type", "visibility", "supported_in_api",
-    "priority", "default_service_tier", "availability_nux", "upgrade",
-    "model_messages", "include_skills_usage_instructions",
-    "supports_reasoning_summary_parameter", "default_reasoning_summary",
-    "support_verbosity", "default_verbosity", "apply_patch_tool_type",
-    "web_search_tool_type", "truncation_policy", "supports_parallel_tool_calls",
-    "supports_image_detail_original", "context_window", "max_context_window",
-    "auto_compact_token_limit", "comp_hash", "effective_context_window_percent",
-    "experimental_supported_tools", "input_modalities", "supports_search_tool",
-    "use_responses_lite", "auto_review_model_override", "tool_mode",
-    "multi_agent_version", "base_instructions",
+MODELINFO_REQUIRED_KEYS = {
+    "slug", "auto_review_model_override", "apply_patch_tool_type",
+    "model_messages", "supports_search_tool", "base_instructions",
 }
+# CODEX-SENSITIVE: this is deliberately only the package-owned invariant set.
+# VERIFIED AGAINST: Codex 0.146.0 `debug models`. FAILURE SYMPTOM: the real
+# consumer contract, rather than a mirrored Python schema, rejects drift.
 
 
 class PackageError(RuntimeError): pass
@@ -112,6 +105,23 @@ def auto_home(kind: str) -> Path:
 def resolve_home(value: str, kind: str) -> Path: return auto_home(kind) if value == "auto" else Path(value).expanduser().resolve()
 
 
+def parse_gateway_url(value: str) -> urllib.parse.ParseResult:
+    """Parse the single credential-free loopback CCR endpoint."""
+    parsed = urllib.parse.urlparse(value)
+    try: parsed_port = parsed.port
+    except ValueError as error: raise PackageError(f"invalid gateway.base_url port: {error}") from error
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        raise PackageError("gateway.base_url must be a credential-free loopback HTTP(S) URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise PackageError("gateway.base_url must be a credential-free loopback HTTP(S) URL")
+    if parsed_port is not None and not (1 <= parsed_port <= 65535):
+        raise PackageError("gateway.base_url port is out of range")
+    return parsed
+
+
+def gateway_responses_endpoint(value: str) -> str: return parse_gateway_url(value).geturl().rstrip("/") + "/responses"
+
+
 def exact_keys(label: str, value: dict, allowed: set[str], required: set[str] | None = None) -> None:
     extra, missing = set(value) - allowed, (required or allowed) - set(value)
     if extra or missing: raise PackageError(f"{label} keys invalid; missing={sorted(missing)} extra={sorted(extra)}")
@@ -130,9 +140,7 @@ def deployment(path: Path) -> dict:
             if not isinstance(data[section][key], str) or not data[section][key].strip(): raise PackageError(f"missing {section}.{key}")
     if data["worker"]["model_selector"].startswith("<"): raise PackageError("deployment file still contains a model selector placeholder")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", data["gateway"]["client_key_env"]): raise PackageError("invalid gateway.client_key_env")
-    gateway_url = urllib.parse.urlparse(data["gateway"]["base_url"])
-    if gateway_url.scheme not in {"http", "https"} or gateway_url.hostname not in {"127.0.0.1", "localhost", "::1"} or gateway_url.username or gateway_url.password:
-        raise PackageError("gateway.base_url must be a credential-free loopback HTTP(S) URL")
+    parse_gateway_url(data["gateway"]["base_url"])
     return data
 
 
@@ -157,6 +165,29 @@ def load_sources(data: dict) -> tuple[dict, list[dict], dict]:
 def quote_toml(value: str) -> str: return json.dumps(value, ensure_ascii=False)
 
 
+def managed_target_set(package: dict) -> list[str]:
+    """Semantic ownership set; patch releases must keep this list unchanged.
+
+    VERSION-SENSITIVE: verified for the 0.3.1 lifecycle. A mismatch means a
+    role/provider/plugin ownership change needs a minor version and redeploy.
+    """
+    targets = [
+        f"codex:config-marker:{package['managed_marker']}",
+        f"codex:model-provider:{package['local_provider_id']}",
+        "codex:model-catalog:models.worker.json",
+        f"ccr:plugin:{package['plugin_id']}",
+    ]
+    targets += [f"codex:agent:{role}" for role in roles_from(package)]
+    return sorted(targets)
+
+
+def managed_target_paths(codex_home: Path, ccr_home: Path, package: dict) -> set[str]:
+    targets = {str(codex_home / "config.toml"), str(codex_home / "models.worker.json")}
+    targets |= {str(codex_home / "agents" / f"{role}.toml") for role in roles_from(package)}
+    targets.add(str(ccr_home / "plugins" / package["plugin_id"]))
+    return targets
+
+
 def render_catalog(profile: dict, selector: str) -> dict:
     path = ROOT / "profile" / profile["id"] / profile["model_template"]
     catalog = json.loads(path.read_text(encoding="utf-8")); models = catalog.get("models")
@@ -174,21 +205,27 @@ def render_tree(data: dict, output: Path, codex_home: Path | None = None) -> dic
     generated = {"models.worker.json": stable_json(render_catalog(profile, worker["model_selector"]))}
     # CODEX-SENSITIVE: native provider fields; verified Codex 0.146.0.
     # FAILURE SYMPTOM: workers inherit the root provider or local auth is unused.
-    config = [begin, f"[model_providers.{provider_id}]", 'name = "CCR Flash Worker"', f"base_url = {quote_toml(gateway['base_url'].rstrip('/'))}", f"env_key = {quote_toml(gateway['client_key_env'])}", 'wire_api = "responses"', "requires_openai_auth = false", ""]
+    gateway_base = parse_gateway_url(gateway["base_url"]).geturl().rstrip("/")
+    config = [begin, f"[model_providers.{provider_id}]", 'name = "CCR Flash Worker"', f"base_url = {quote_toml(gateway_base)}", f"env_key = {quote_toml(gateway['client_key_env'])}", 'wire_api = "responses"', "requires_openai_auth = false", ""]
     for role in roles:
         role_path = (codex_home / "agents" / f"{role['id']}.toml") if codex_home else Path("<CODEX_HOME>") / "agents" / f"{role['id']}.toml"
         config += [f"[agents.{role['id']}]", f"description = {quote_toml(role['description'])}", f"config_file = {quote_toml(str(role_path))}", ""]
         lines = [f"model_provider = {quote_toml(provider_id)}", f"model = {quote_toml(worker['model_selector'])}", f"model_catalog_json = {quote_toml(str(catalog_path))}", f"sandbox_mode = {quote_toml(role['sandbox'])}", 'approval_policy = "on-request"', f"developer_instructions = {quote_toml(role['instructions'])}"]
         if isinstance(role["sandbox_network_access"], bool):
-            # CODEX-SENSITIVE: network_access is nested here, not top-level.
-            # VERIFIED AGAINST: Codex 0.146.0. FAILURE: strict rejection or network grant.
+            # CODEX-SENSITIVE — INTENTIONAL DEFENSE-IN-DEPTH.
+            # WHY: long-term policy denies sandbox network for read-only roles.
+            # Codex has no read-only-specific deny field, so the explicit
+            # sandbox_workspace_write.network_access=false declaration remains.
+            # VERIFIED AGAINST: Codex 0.146.0 consumer contract.
+            # REVISIT WHEN: Codex adds a read-only network deny field or
+            # guarantees stable fail-closed read-only network semantics.
             network_value = "true" if role["sandbox_network_access"] else "false"
             lines += ["", "[sandbox_workspace_write]", f"network_access = {network_value}"]
         lines.append(""); generated[f"agents/{role['id']}.toml"] = "\n".join(lines)
     config.append(end); generated["config.fragment.toml"] = "\n".join(config) + "\n"
     generated["plugin-profile.json"] = stable_json({"profile_id": profile["id"], "profile_version": profile["version"], "model_selectors": [worker["model_selector"]], "responses_endpoint_suffix": profile["responses_endpoint_suffix"], "unsupported_tool_types": profile["unsupported_tool_types"], "namespace_tool_choice_fallback": profile["tool_choice_fallback"]})
     for relative, content in generated.items(): write_text(output / relative, content)
-    manifest = {"schema_version": 2, "package_version": package["package_version"], "profile": f"{profile['id']}@{profile['version']}", "codex_baseline": profile["codex_baseline"], "effective_model_identity": worker.get("effective_model_identity", "USER_MUST_VERIFY"), "files": {name: hashlib.sha256(text.encode()).hexdigest() for name, text in sorted(generated.items())}}
+    manifest = {"schema_version": 2, "package_version": package["package_version"], "managed_target_set": managed_target_set(package), "profile": f"{profile['id']}@{profile['version']}", "codex_baseline": profile["codex_baseline"], "effective_model_identity": worker.get("effective_model_identity", "USER_MUST_VERIFY"), "files": {name: hashlib.sha256(text.encode()).hexdigest() for name, text in sorted(generated.items())}}
     write_text(output / "deployment-manifest.json", stable_json(manifest)); generated["deployment-manifest.json"] = (output / "deployment-manifest.json").read_text(encoding="utf-8")
     return generated
 
@@ -256,7 +293,7 @@ def desired_state_matches(data: dict, codex_home: Path, ccr_home: Path) -> bool:
 def plan(data: dict) -> dict:
     package = package_config(); profile, _, _ = load_sources(data)
     codex_home, ccr_home = resolve_home(data["deployment"]["codex_home"], "codex"), resolve_home(data["deployment"]["ccr_home"], "ccr")
-    ensure_supported_upgrade(codex_home, package)
+    ensure_supported_upgrade(codex_home, ccr_home, package)
     config = codex_home / "config.toml"; check_conflicts(config.read_text(encoding="utf-8") if config.is_file() else "", package)
     probe = probe_ccr_plugin_package(data)
     artifacts = [codex_home / "agents" / f"{r}.toml" for r in roles_from(package)] + [codex_home / "models.worker.json"]
@@ -290,13 +327,14 @@ def assert_artifact_ownership(codex_home: Path, targets: list[Path]) -> None:
         if artifact_hash(target) != expected: raise PackageError(f"CONFLICT package-owned artifact was edited: {target}")
 
 
-def ensure_supported_upgrade(codex_home: Path, package: dict) -> None:
+def ensure_supported_upgrade(codex_home: Path, ccr_home: Path, package: dict) -> None:
     """Fail closed when a prior deployment used a different lifecycle contract."""
     pointer = codex_home / "deployment-package-state" / "current.json"
     if not pointer.is_file(): return
     try:
         manifest_path = Path(json.loads(pointer.read_text(encoding="utf-8"))["manifest"])
-        installed = str(json.loads(manifest_path.read_text(encoding="utf-8"))["package_version"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        installed = str(manifest["package_version"])
     except Exception as error:
         raise PackageError(f"installed package version is unreadable: {type(error).__name__}") from error
     current = str(package["package_version"])
@@ -305,6 +343,13 @@ def ensure_supported_upgrade(codex_home: Path, package: dict) -> None:
             f"UNSUPPORTED LIFECYCLE UPGRADE {installed} -> {current}: "
             "uninstall the existing deployment with its original package version before applying this version"
         )
+    expected_targets = managed_target_set(package)
+    recorded_targets = manifest.get("managed_target_set")
+    if recorded_targets is None and installed == "0.3.0":
+        if set(manifest.get("installed_hashes", {})) != managed_target_paths(codex_home, ccr_home, package):
+            raise PackageError("MANAGED TARGET SET CHANGED WITHIN PATCH SERIES: bump the package minor version")
+    elif not isinstance(recorded_targets, list) or sorted(recorded_targets) != expected_targets:
+        raise PackageError("MANAGED TARGET SET CHANGED WITHIN PATCH SERIES: bump the package minor version")
 
 
 def apply(data: dict) -> None:
@@ -314,7 +359,7 @@ def apply(data: dict) -> None:
         print("NOOP: installed package artifacts already match declarative configuration; no revision created")
         return
     package = package_config(); codex_home, ccr_home = Path(value["codex_home"]), Path(value["ccr_home"])
-    ensure_supported_upgrade(codex_home, package)
+    ensure_supported_upgrade(codex_home, ccr_home, package)
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_setting = data["deployment"].get("backup_root", "auto")
     revision = codex_home / "deployment-package-state" / "revisions" / timestamp if backup_setting == "auto" else Path(backup_setting).expanduser().resolve() / timestamp
@@ -344,7 +389,7 @@ def apply(data: dict) -> None:
         else: created.append(str(plugin_target))
         plugin_target.parent.mkdir(parents=True, exist_ok=True); shutil.copytree(ROOT / "plugins" / package["plugin_id"], plugin_target); shutil.copy2(rendered / "plugin-profile.json", plugin_target / "capability-profile.json")
     hashes = {item: artifact_hash(Path(item)) for item in created + modified if Path(item).exists()}
-    manifest = {"schema_version": 2, "package_version": package["package_version"], "timestamp": timestamp, "created": created, "modified": modified, "backups": backups, "installed_hashes": hashes, "previous_current": previous}
+    manifest = {"schema_version": 2, "package_version": package["package_version"], "managed_target_set": managed_target_set(package), "timestamp": timestamp, "created": created, "modified": modified, "backups": backups, "installed_hashes": hashes, "previous_current": previous}
     manifest_path = revision / "revision-manifest.json"
     write_text(manifest_path, stable_json(manifest)); write_text(current, stable_json({"revision": timestamp, "manifest": str(manifest_path)}))
     baseline = codex_home / "deployment-package-state" / "baseline.json"
@@ -439,9 +484,9 @@ def secret_scan() -> list[str]:
 
 def validate_template(profile: dict) -> None:
     model = json.loads((ROOT / "profile" / profile["id"] / profile["model_template"]).read_text(encoding="utf-8")).get("models", [None])[0]
-    if not isinstance(model, dict) or set(model) != MODELINFO_TEMPLATE_KEYS:
-        missing = sorted(MODELINFO_TEMPLATE_KEYS - set(model or {})); extra = sorted(set(model or {}) - MODELINFO_TEMPLATE_KEYS)
-        raise PackageError(f"native ModelInfo template keys invalid; missing={missing} extra={extra}")
+    if not isinstance(model, dict) or MODELINFO_REQUIRED_KEYS - set(model):
+        missing = sorted(MODELINFO_REQUIRED_KEYS - set(model or {}))
+        raise PackageError(f"native ModelInfo package invariants missing: {missing}")
     if model["apply_patch_tool_type"] != "freeform" or model["slug"] != "__MODEL_SELECTOR__": raise PackageError("native ModelInfo baseline invalid")
     messages = model.get("model_messages")
     if not isinstance(messages, dict) or set(messages) != {"instructions_template"} or not messages["instructions_template"].strip():
@@ -472,7 +517,12 @@ def validate() -> None:
         for role in roles:
             value = load_toml(one / "agents" / f"{role['id']}.toml")
             if value["model_provider"] != package["local_provider_id"] or "network_access" in value: raise PackageError("role provider/network invalid")
-            if value.get("sandbox_workspace_write", {}).get("network_access") is not role["sandbox_network_access"]: raise PackageError("role sandbox network policy was not rendered")
+            if value.get("sandbox_mode") != role["sandbox"]: raise PackageError("role sandbox mode was not rendered")
+            if role["sandbox_network_access"] is not False or value.get("sandbox_workspace_write", {}).get("network_access") is not False:
+                raise PackageError("role defense-in-depth sandbox network denial was not rendered")
+        parsed_ipv6 = parse_gateway_url("http://[::1]:3456/v1")
+        if parsed_ipv6.hostname != "::1" or parsed_ipv6.port != 3456 or gateway_responses_endpoint(parsed_ipv6.geturl()) != "http://[::1]:3456/v1/responses":
+            raise PackageError("IPv6 loopback gateway URL contract failed")
         once = merge_managed_block('model = "official-root"\n', fragment, package); twice = merge_managed_block(once, fragment, package)
         if once != twice or "official-root" not in twice: raise PackageError("apply idempotence/preservation failed")
     probe = probe_ccr_plugin_package(data)
@@ -495,8 +545,8 @@ def codex_contract(data: dict) -> None:
         expected_instructions = rendered_catalog["models"][0]["model_messages"]["instructions_template"]
         # CODEX-SENSITIVE: 0.146.0 rejects --strict-config on `debug`; `--help`
         # does not load config, and `doctor` performs network checks. The offline
-        # consumer contract therefore uses debug prompt-input per role, while
-        # this package's exact-key allowlists reject unknown fields.
+        # consumer contract therefore uses debug prompt-input per role. Codex is
+        # the schema authority; package validation checks only owned invariants.
         for role in roles_from(package):
             role_config = (rendered / "agents" / f"{role}.toml").read_text(encoding="utf-8")
             write_text(home / "config.toml", role_config + "\n" + fragment)
@@ -514,7 +564,8 @@ def codex_contract(data: dict) -> None:
 
 def doctor(data: dict, live: bool, confirm_cost: bool) -> None:
     value = plan(data); codex_home, ccr_home = Path(value["codex_home"]), Path(value["ccr_home"]); env_name = data["gateway"]["client_key_env"]
-    host = data["gateway"]["base_url"].split("://", 1)[-1].split("/", 1)[0]; hostname, _, port = host.partition(":")
+    gateway_url = parse_gateway_url(data["gateway"]["base_url"])
+    hostname, port = gateway_url.hostname, gateway_url.port or (443 if gateway_url.scheme == "https" else 80)
     try:
         with socket.create_connection((hostname, int(port or "80")), timeout=1): port_status = "reachable"
     except Exception: port_status = "not-reachable"
@@ -523,7 +574,7 @@ def doctor(data: dict, live: bool, confirm_cost: bool) -> None:
         if not confirm_cost: raise PackageError("live mode may consume tokens; pass --confirm-cost")
         key = os.environ.get(env_name)
         if not key: raise PackageError(f"required environment variable absent: {env_name}")
-        endpoint = data["gateway"]["base_url"].rstrip("/") + "/responses"; body = stable_json({"model": data["worker"]["model_selector"], "input": "Return exactly OK.", "max_output_tokens": 8, "tools": [{"type": "namespace", "name": "fixture_namespace", "tools": []}, {"type": "function", "name": "fixture_function", "description": "fixture", "parameters": {"type": "object", "properties": {}}}], "tool_choice": {"type": "namespace", "name": "fixture_namespace"}}).encode()
+        endpoint = gateway_responses_endpoint(data["gateway"]["base_url"]); body = stable_json({"model": data["worker"]["model_selector"], "input": "Return exactly OK.", "max_output_tokens": 8, "tools": [{"type": "namespace", "name": "fixture_namespace", "tools": []}, {"type": "function", "name": "fixture_function", "description": "fixture", "parameters": {"type": "object", "properties": {}}}], "tool_choice": {"type": "namespace", "name": "fixture_namespace"}}).encode()
         request = urllib.request.Request(endpoint, data=body, method="POST", headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
         try:
             with urllib.request.urlopen(request, timeout=60) as response: report["live_http_status"], report["live_response_valid"] = response.status, 200 <= response.status < 300

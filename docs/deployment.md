@@ -9,8 +9,8 @@
 4. Run `bootstrap.ps1` to collect non-secret parameters.
 5. Run offline doctor and deployment dry-run.
 6. Review `DEPLOYMENT PLAN`, then run `deploy.ps1 -Apply`.
-7. In CCR Desktop Extensions, install/enable the copied
-   `responses-tool-capability-compat` directory.
+7. Install and enable the copied extension using the version-sensitive procedure
+   below.
 8. Run `validate.ps1`, fully restart Codex and CCR, and optionally run paid live
    doctor.
 
@@ -42,6 +42,34 @@ revision. Rollback restores only the preceding package revision. Uninstall
 restores the first-install baseline and removes only unchanged package-owned
 artifacts and its marked block; it never runs Git reset/clean or deletes unknown
 configuration.
+
+## CCR Desktop extension activation
+
+**CCR-SENSITIVE — verified against CCR Desktop 3.0.20 on 2026-08-10.** The UI
+loads a folder containing `plugin.json`; it does not require selecting the module
+file directly. A changed UI, manifest format, or permission model can cause the
+extension to be absent or leave namespace tools unfiltered.
+
+1. Locate the copied directory shown in the deployment plan:
+   `<CCR_HOME>/plugins/responses-tool-capability-compat`.
+2. Open **CCR Desktop → Extensions → Install → Choose folder**.
+3. Select the `responses-tool-capability-compat` **directory**, not
+   `index.cjs`.
+4. Before accepting, inspect `plugin.json` and verify module `index.cjs`, gateway
+   surface enabled, and permissions `trusted-code` plus `core-gateway-config`.
+5. Install it and keep it enabled, then restart CCR.
+
+For an unverified CCR version, stop if these UI fields or permissions differ.
+Do not edit an internal gateway runtime file. Re-run the package contract and a
+controlled live namespace smoke after activation.
+
+## Patch-series ownership rule
+
+Patch releases within `0.3.x` must preserve the semantic managed target set:
+the config marker, local provider id, model catalog path, role names/paths, and
+CCR plugin id/path. Revision manifests record this set and refuse a patch apply
+when it changes. Adding/removing a role or changing an ownership contract
+requires a minor package version bump and an explicit uninstall/redeploy path.
 
 ## 0.2 to 0.3 lifecycle boundary
 

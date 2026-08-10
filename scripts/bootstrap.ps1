@@ -36,4 +36,4 @@ client_key_env = "$envName"
 Write-Host "Created local, git-ignored deployment configuration: $Output"
 Write-Host "Required environment variable present: $present (value not read or printed)"
 Write-Host 'Configure the upstream provider credential in CCR outside this repository.'
-Write-Host 'After deploy, use CCR Extensions to install/enable the copied plugin directory.'
+Write-Host 'After deploy, use CCR Extensions > Install > Choose folder and select the copied plugin directory (tested CCR 3.0.20 flow).'

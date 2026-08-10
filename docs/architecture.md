@@ -28,3 +28,7 @@ The persistent file model follows the rule of two: `roles/`, one
 `profile/deepseek-flash-responses/`, one local deployment file, and one plugin.
 It should split into registries only after a second materially different
 model/protocol implementation exists.
+
+Within a patch release series, the semantic managed target set is immutable.
+Role/provider/plugin ownership changes require a minor version and explicit
+lifecycle handling rather than an inferred migration.

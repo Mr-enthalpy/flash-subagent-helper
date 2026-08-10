@@ -3,9 +3,9 @@
 | Component | Verified baseline | Status |
 |---|---:|---|
 | Package schema | 2 | VERIFIED |
-| Package | 0.3.0 | VERIFIED offline |
+| Package | 0.3.1 | VERIFIED offline |
 | Codex CLI | 0.146.0 | VERIFIED local schema baseline |
-| CCR | local build version unresolved | version is audit-only |
+| CCR Desktop | 3.0.20 | Extensions folder-picker flow verified; version remains audit-only |
 | CCR extension packaging | manifest `setup()` → core gateway registration → `transformRequest` | package contract VERIFIED; activation requires operator/live confirmation |
 | Platform | Windows 11 x64 class | VERIFIED offline |
 | Model family | DeepSeek Flash-compatible | deployment identity must be verified |
@@ -21,3 +21,10 @@ Sensitive points include typed agent schema, `fork_turns`, Multi-Agent V2 tool
 surface, model catalog/load lifecycle, auto-review override semantics, Guardian,
 namespace encoding, apply-patch representation, CCR routers/transformers and
 final upstream pipeline, Responses tools, and provider route aliases.
+
+## Closed audit decisions
+
+`read-only` roles retaining `[sandbox_workspace_write] network_access = false`
+is **CLOSED / WON'T FIX — INTENTIONAL DEFENSE-IN-DEPTH**. Under the current
+Codex schema, long-term network denial outweighs structural neatness; revisit
+only when a read-only-specific deny field or stable fail-closed contract exists.

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Rendered worker model catalog",
+  "title": "Rendered worker model catalog package invariants",
   "type": "object",
   "required": ["models"],
   "properties": {
@@ -10,64 +10,22 @@
       "items": {
         "type": "object",
         "required": [
-          "slug", "display_name", "description", "default_reasoning_level",
-          "supported_reasoning_levels", "shell_type", "visibility",
-          "supported_in_api", "priority", "default_service_tier",
-          "availability_nux", "upgrade", "model_messages",
-          "include_skills_usage_instructions",
-          "supports_reasoning_summary_parameter", "default_reasoning_summary",
-          "support_verbosity", "default_verbosity", "apply_patch_tool_type",
-          "web_search_tool_type", "truncation_policy",
-          "supports_parallel_tool_calls", "supports_image_detail_original",
-          "context_window", "max_context_window", "auto_compact_token_limit",
-          "comp_hash", "effective_context_window_percent",
-          "experimental_supported_tools", "input_modalities",
-          "supports_search_tool", "use_responses_lite",
-          "auto_review_model_override", "tool_mode", "multi_agent_version",
-          "base_instructions"
+          "slug", "auto_review_model_override", "apply_patch_tool_type",
+          "model_messages", "supports_search_tool", "base_instructions"
         ],
-        "additionalProperties": false,
         "properties": {
           "slug": {"type": "string", "minLength": 1},
-          "display_name": {"type": "string"},
-          "description": {"type": "string"},
-          "default_reasoning_level": {"type": "string"},
-          "supported_reasoning_levels": {"type": "array"},
-          "shell_type": {"type": "string"},
-          "visibility": {"type": "string"},
-          "supported_in_api": {"type": "boolean"},
-          "priority": {"type": "integer"},
-          "default_service_tier": {"type": ["string", "null"]},
-          "availability_nux": {"type": ["object", "null"]},
-          "upgrade": {"type": ["object", "null"]},
           "model_messages": {
             "type": "object",
             "additionalProperties": false,
             "required": ["instructions_template"],
-            "properties": {"instructions_template": {"type": "string", "minLength": 1}}
+            "properties": {
+              "instructions_template": {"type": "string", "minLength": 1}
+            }
           },
-          "include_skills_usage_instructions": {"type": "boolean"},
-          "supports_reasoning_summary_parameter": {"type": "boolean"},
-          "default_reasoning_summary": {"type": "string"},
-          "support_verbosity": {"type": "boolean"},
-          "default_verbosity": {"type": "string"},
           "apply_patch_tool_type": {"const": "freeform"},
-          "web_search_tool_type": {"type": "string"},
-          "truncation_policy": {"type": "object"},
-          "supports_parallel_tool_calls": {"type": "boolean"},
-          "supports_image_detail_original": {"type": "boolean"},
-          "context_window": {"type": "integer", "minimum": 1},
-          "max_context_window": {"type": "integer", "minimum": 1},
-          "auto_compact_token_limit": {"type": ["integer", "null"]},
-          "comp_hash": {"type": "string"},
-          "effective_context_window_percent": {"type": "integer"},
-          "experimental_supported_tools": {"type": "array"},
-          "input_modalities": {"type": "array"},
           "supports_search_tool": {"const": false},
-          "use_responses_lite": {"type": "boolean"},
           "auto_review_model_override": {"type": "string", "minLength": 1},
-          "tool_mode": {"type": ["string", "null"]},
-          "multi_agent_version": {"type": ["string", "integer", "null"]},
           "base_instructions": {"type": "string", "minLength": 1}
         }
       }
