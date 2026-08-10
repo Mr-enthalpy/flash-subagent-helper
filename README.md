@@ -16,7 +16,8 @@
 Persistent intent
   -> seven role files + root lifecycle policy + one versioned Responses profile
   -> deterministic renderer and ownership-aware deployer
-  -> Codex root (preserved) + fixed local provider ccr_flash_worker
+  -> Codex root policy (managed merge; root model/provider preserved)
+  -> fixed local provider ccr_flash_worker
   -> CCR route + provider selected outside Codex
   -> OpenAI Responses-compatible DeepSeek Flash deployment
 ```
@@ -83,18 +84,19 @@ controlled live smoke separately confirms the required namespace behavior.
 
 ## Deployment and validation
 
-The deployer merges one stable marked block containing the package-owned local
-provider and `[agents.*]` registrations. It preserves the official root model
-and provider, authentication, other agents, MCP servers, tools, and unrelated
-instructions. Same-name unmanaged objects are hard conflicts. A changed apply
-writes a local revision manifest and backups outside the repository; an
-already-converged apply is a NOOP and creates no revision. Uninstall restores
-the first-install baseline, while rollback restores the preceding revision.
+The deployer owns two narrow semantic blocks: the local provider/`[agents.*]`
+TOML block and a marked root-policy block inside the top-level
+`developer_instructions` string. Existing operator instructions are preserved;
+unsupported or ambiguous TOML string syntax fails closed. The official root
+model/provider, authentication, other agents, MCP servers, and tools are never
+replaced. A changed apply writes a revision manifest and full-file backup; an
+already-converged apply is a NOOP. Rollback restores the preceding revision,
+and uninstall removes only package-owned semantics while restoring the exact
+first-install config when no unrelated semantic changes were made.
 
-Version 0.3.x renders the lifecycle policy and capability report as auditable
-artifacts but deliberately does not claim ownership of an existing root
-`developer_instructions` value. Automating that ownership requires a future
-minor-version lifecycle contract; it must not be smuggled into a patch release.
+Version 0.4.0 is the explicit root-policy ownership boundary. An active 0.3.x
+deployment must be uninstalled with its original checkout before installing
+0.4.0; the deployer refuses to infer that migration.
 
 - [Deployment guide](docs/deployment.md)
 - [Provider integration](docs/provider-integration.md)

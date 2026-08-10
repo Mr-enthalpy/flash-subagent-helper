@@ -5,10 +5,11 @@ context-bearing workers with role/workstream affinity. Reuse is nevertheless
 capability-gated: a fresh worker plus an old summary is checkpoint continuation,
 not same-thread reuse.
 
-The declaration lives in `policy/subagent-lifecycle.toml`; the latest sanitized
+The declaration lives in `policy/subagent-lifecycle.toml` and is installed as a
+package-managed block inside root `developer_instructions`; the latest sanitized
 test evidence lives in `validation/subagent-runtime-capabilities.toml`. Neither
-file contains credentials, prompts, request bodies, thread ids, machine paths,
-or provider-specific routing.
+source file contains credentials, prompts, request bodies, thread ids, machine
+paths, or provider-specific routing.
 
 ## Current tested baseline
 

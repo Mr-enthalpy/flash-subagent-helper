@@ -23,7 +23,13 @@ Provider-independent fixtures exercise 19 tools/7 namespaces, 12 normal tools,
 function/custom apply-patch preservation, namespace tool-choice fallback,
 selector isolation, final Responses endpoint filtering, and idempotence.
 
-## LIVE — explicit, never required by CI
+## AUTOMATED LIVE — explicit, never required by CI
+
+`doctor.ps1 -Live -ConfirmCost` automates only the minimal CCR/Responses route
+and compatibility request. It can consume tokens. Passing it does not prove
+typed-worker lifecycle, Guardian, receipt, or reload behavior.
+
+## OPERATOR-DRIVEN LIVE — explicit, never required by CI
 
 Live acceptance is a controlled operator procedure:
 
@@ -42,5 +48,7 @@ auditor, workspace-write, and Guardian probes. Record only the matrix and
 sanitized marker-presence/status evidence described in
 `subagent-runtime-capabilities.md`; never store prompt or request bodies.
 
-The live request can consume tokens and requires permission to use the selected
-provider. It must not print prompts, request bodies, credentials, or user data.
+These probes are intentionally operator-driven rather than disguised as an
+automated lifecycle harness. They can consume tokens and require permission to
+use the selected provider. They must not print prompts, request bodies,
+credentials, or user data.

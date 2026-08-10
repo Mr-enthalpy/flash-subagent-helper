@@ -3,7 +3,7 @@
 // COMPAT-SENSITIVE:
 // WHY: Some OpenAI Responses-compatible routes reject top-level tool objects
 // with type "namespace", while Codex may emit them for grouped tool surfaces.
-// VERIFIED AGAINST: deepseek-flash-responses@1.0.0 and Codex CLI 0.146.0.
+// VERIFIED AGAINST: deepseek-flash-responses@1.1.0 and Codex CLI 0.146.0.
 // FAILURE SYMPTOM: RESPONSES_FEATURE_NOT_SUPPORTED tool.namespace.
 
 function isRecord(value) {

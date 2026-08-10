@@ -19,9 +19,11 @@ of compatibility. A packaged extension contract is not evidence of activation
 inside CCR. `VERIFIED` requires the Codex contract, explicit CCR extension
 activation, and the controlled live smoke appropriate to the change.
 
-Package 0.2 and 0.3 use different CCR ownership contracts. Do not apply 0.3 over
-an active 0.2 deployment. Uninstall with the original 0.2 checkout first, then
-install 0.3 and activate the copied extension through CCR Desktop.
+Package 0.2 and 0.3 use different CCR ownership contracts. Package 0.3 and 0.4
+also differ: 0.4 explicitly owns a marked block inside root
+`developer_instructions`. Do not cross either minor ownership boundary in place.
+Uninstall with the currently installed package's original checkout, confirm its
+baseline is restored, then install the next minor version.
 
 Patch releases must not add or remove managed roles, change the managed marker
 or local provider id, or change the managed plugin path/id. Those changes alter
@@ -38,3 +40,8 @@ Runtime lifecycle capabilities are partial and must not be collapsed into a
 single READY flag. Upgrade validation updates the sanitized capability report;
 same-thread reuse is promoted only when both DELTA delivery and PROJECT SYNC
 pass. An unverified heterogeneous reload permits active-thread reuse only.
+
+Codex config schema upgrades must also rerun the root consumer contract. Confirm
+that top-level `developer_instructions` remains a string, the managed policy is
+accepted, unrelated operator instructions survive apply/uninstall, and root
+model/provider values remain unchanged.

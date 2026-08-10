@@ -19,17 +19,18 @@ artifacts are deterministic and are installed with a revision manifest.
 `policy/subagent-lifecycle.toml` is the provider-independent source for worker
 lifecycle intent and degraded continuation semantics. The sanitized tested
 baseline lives in `validation/subagent-runtime-capabilities.toml`. Both are
-validated and deterministically rendered into audit artifacts. The 0.3.x
-deployer still preserves root `developer_instructions`; changing that ownership
-boundary requires a minor release and explicit migration contract.
+validated and deterministically rendered into audit artifacts. Starting with
+0.4.0, the lifecycle policy is also merged into the root's top-level
+`developer_instructions` as a stable marked semantic block. Existing operator
+instructions remain outside that block and are preserved.
 
-Ownership is narrow: `[model_providers.ccr_flash_worker]`, seven `[agents.*]`
-tables, seven generated role files, one worker model catalog, and one CCR plugin
-directory. The plugin directory is copied for operator activation through CCR
-Desktop Extensions; the package never edits CCR's internal runtime gateway
-configuration. `package.toml` is the sole source for marker, roles, provider id,
-profile id, activation policy, and plugin id. Unmanaged same-name objects cause
-a conflict.
+Ownership is narrow: one root developer-instructions policy block,
+`[model_providers.ccr_flash_worker]`, seven `[agents.*]` tables, seven generated
+role files, one worker model catalog, and one CCR plugin directory. The plugin
+directory is copied for operator activation through CCR Desktop Extensions; the
+package never edits CCR's internal runtime gateway configuration. `package.toml`
+is the sole source for marker, roles, provider id, profile id, activation policy,
+and plugin id. Unmanaged same-name objects cause a conflict.
 
 The persistent file model follows the rule of two: `roles/`, one
 `profile/deepseek-flash-responses/`, one local deployment file, and one plugin.

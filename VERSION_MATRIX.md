@@ -3,7 +3,7 @@
 | Component | Verified baseline | Status |
 |---|---:|---|
 | Package schema | 2 | VERIFIED |
-| Package | 0.3.2 | VERIFIED offline |
+| Package | 0.4.0 | VERIFIED offline |
 | Codex CLI | 0.146.0 | VERIFIED local schema baseline |
 | CCR Desktop | 3.0.20 | Extensions folder-picker flow verified; version remains audit-only |
 | CCR extension packaging | manifest `setup()` → core gateway registration → `transformRequest` | package contract VERIFIED; activation requires operator/live confirmation |
@@ -11,7 +11,7 @@
 | Model family | DeepSeek Flash-compatible | deployment identity must be verified |
 | Responses profile | `deepseek-flash-responses@1.1.0` | VERIFIED fixtures + Codex contract |
 | Last verified | 2026-08-10 | — |
-| Subagent policy | READY | auditable source packaged |
+| Subagent policy | READY | deterministic root merge contract VERIFIED offline |
 | Same-thread reuse | DEGRADED | DELTA and PROJECT SYNC failed |
 | Heterogeneous reload | UNVERIFIED | no reliable unload trigger |
 

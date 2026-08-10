@@ -129,6 +129,11 @@ def markers(package: dict) -> tuple[str, str]:
     return f"# BEGIN MANAGED: {marker}", f"# END MANAGED: {marker}"
 
 
+def root_policy_markers(package: dict) -> tuple[str, str]:
+    marker = package["managed_marker"]
+    return f"[[BEGIN MANAGED ROOT POLICY: {marker}]]", f"[[END MANAGED ROOT POLICY: {marker}]]"
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -225,24 +230,18 @@ def quote_toml(value: str) -> str: return json.dumps(value, ensure_ascii=False)
 def managed_target_set(package: dict) -> list[str]:
     """Semantic ownership set; patch releases must keep this list unchanged.
 
-    VERSION-SENSITIVE: verified for the 0.3.1 lifecycle. A mismatch means a
+    VERSION-SENSITIVE: verified for the 0.4.0 lifecycle. A mismatch means a
     role/provider/plugin ownership change needs a minor version and redeploy.
     """
     targets = [
         f"codex:config-marker:{package['managed_marker']}",
+        f"codex:developer-instructions-root-policy:{package['managed_marker']}",
         f"codex:model-provider:{package['local_provider_id']}",
         "codex:model-catalog:models.worker.json",
         f"ccr:plugin:{package['plugin_id']}",
     ]
     targets += [f"codex:agent:{role}" for role in roles_from(package)]
     return sorted(targets)
-
-
-def managed_target_paths(codex_home: Path, ccr_home: Path, package: dict) -> set[str]:
-    targets = {str(codex_home / "config.toml"), str(codex_home / "models.worker.json")}
-    targets |= {str(codex_home / "agents" / f"{role}.toml") for role in roles_from(package)}
-    targets.add(str(ccr_home / "plugins" / package["plugin_id"]))
-    return targets
 
 
 def render_catalog(profile: dict, selector: str) -> dict:
@@ -317,6 +316,154 @@ def merge_managed_block(text: str, fragment: str, package: dict) -> str:
     return unmanaged.rstrip() + ("\n\n" if unmanaged.strip() else "") + fragment
 
 
+def _top_level_assignment_candidates(text: str, key: str) -> list[tuple[int, int]]:
+    """Return (line_start, value_start) for a bare top-level TOML key.
+
+    CODEX-SENSITIVE:
+    WHY: developer_instructions is a top-level Codex config string, while the
+    rest of the config contains role-local keys with the same name. This small
+    lexer distinguishes root assignments from table entries without rewriting
+    unrelated TOML.
+    VERIFIED AGAINST: Codex 0.146.0 config schema and Python 3.11 tomllib.
+    FAILURE SYMPTOM: policy is written into a role/table or an existing root
+    instruction is replaced instead of merged. Unsupported syntax fails closed.
+    """
+    candidates: list[tuple[int, int]] = []
+    state, square_depth, brace_depth, table_seen = "normal", 0, 0, False
+    line_start, index, length = 0, 0, len(text)
+    while index < length:
+        if state == "normal" and index == line_start:
+            cursor = index
+            while cursor < length and text[cursor] in " \t": cursor += 1
+            if square_depth == 0 and brace_depth == 0:
+                if cursor < length and text[cursor] == "[": table_seen = True
+                elif not table_seen:
+                    match = re.match(rf"{re.escape(key)}[ \t]*=[ \t]*", text[cursor:])
+                    if match: candidates.append((line_start, cursor + match.end()))
+        char = text[index]
+        if state == "comment":
+            if char == "\n": state, line_start = "normal", index + 1
+            index += 1; continue
+        if state == "basic":
+            if char == "\\": index += 2; continue
+            if char == '"': state = "normal"
+            if char == "\n": line_start = index + 1
+            index += 1; continue
+        if state == "literal":
+            if char == "'": state = "normal"
+            if char == "\n": line_start = index + 1
+            index += 1; continue
+        if state == "multi-basic":
+            if text.startswith('"""', index): state, index = "normal", index + 3; continue
+            if char == "\\": index += 2; continue
+            if char == "\n": line_start = index + 1
+            index += 1; continue
+        if state == "multi-literal":
+            if text.startswith("'''", index): state, index = "normal", index + 3; continue
+            if char == "\n": line_start = index + 1
+            index += 1; continue
+        if char == "#": state = "comment"
+        elif text.startswith('"""', index): state, index = "multi-basic", index + 3; continue
+        elif text.startswith("'''", index): state, index = "multi-literal", index + 3; continue
+        elif char == '"': state = "basic"
+        elif char == "'": state = "literal"
+        elif char == "[": square_depth += 1
+        elif char == "]" and square_depth: square_depth -= 1
+        elif char == "{": brace_depth += 1
+        elif char == "}" and brace_depth: brace_depth -= 1
+        elif char == "\n": line_start = index + 1
+        index += 1
+    return candidates
+
+
+def _toml_string_literal_end(text: str, start: int) -> int:
+    if text.startswith('"""', start): delimiter, basic = '"""', True
+    elif text.startswith("'''", start): delimiter, basic = "'''", False
+    elif text.startswith('"', start): delimiter, basic = '"', True
+    elif text.startswith("'", start): delimiter, basic = "'", False
+    else: raise PackageError("developer_instructions must use a supported TOML string literal")
+    index, length = start + len(delimiter), len(text)
+    while index < length:
+        if basic and text[index] == "\\": index += 2; continue
+        if text.startswith(delimiter, index): return index + len(delimiter)
+        if len(delimiter) == 1 and text[index] == "\n": break
+        index += 1
+    raise PackageError("developer_instructions string literal is not safely terminated")
+
+
+def locate_root_instructions(text: str) -> tuple[int, int, int, str] | None:
+    parsed = tomllib.loads(text) if text.strip() else {}
+    root_value = parsed.get("developer_instructions")
+    candidates = _top_level_assignment_candidates(text, "developer_instructions")
+    if root_value is None:
+        if candidates: raise PackageError("developer_instructions assignment could not be resolved safely")
+        return None
+    if not isinstance(root_value, str): raise PackageError("developer_instructions must be a string")
+    if len(candidates) != 1:
+        raise PackageError("developer_instructions uses unsupported or ambiguous TOML syntax")
+    line_start, value_start = candidates[0]
+    literal_end = _toml_string_literal_end(text, value_start)
+    line_end = text.find("\n", literal_end)
+    if line_end < 0: line_end = len(text)
+    suffix = text[literal_end:line_end]
+    if not re.fullmatch(r"[ \t\r]*(?:#.*)?", suffix):
+        raise PackageError("developer_instructions has unsupported trailing syntax")
+    literal = text[value_start:literal_end]
+    if tomllib.loads("developer_instructions = " + literal)["developer_instructions"] != root_value:
+        raise PackageError("developer_instructions source does not match parsed value")
+    replace_line_end = line_end + (1 if line_end < len(text) else 0)
+    return line_start, literal_end, replace_line_end, root_value
+
+
+def remove_root_policy_value(value: str, package: dict) -> tuple[str, bool]:
+    begin, end = root_policy_markers(package)
+    begin_count, end_count = value.count(begin), value.count(end)
+    if begin_count == end_count == 0: return value, False
+    if begin_count != 1 or end_count != 1 or value.index(begin) > value.index(end):
+        raise PackageError("CONFLICT malformed managed root policy markers")
+    pattern = re.compile(rf"(?s)(?:\n\n)?{re.escape(begin)}\n.*?\n{re.escape(end)}")
+    cleaned, count = pattern.subn("", value)
+    if count != 1: raise PackageError("CONFLICT managed root policy block is not safely removable")
+    return cleaned, True
+
+
+def merge_root_policy_value(value: str, policy_text: str, package: dict) -> str:
+    unmanaged, _ = remove_root_policy_value(value, package)
+    begin, end = root_policy_markers(package)
+    block = begin + "\n" + policy_text.strip() + "\n" + end
+    return unmanaged + ("\n\n" if unmanaged else "") + block
+
+
+def merge_root_policy_config(text: str, policy_text: str, package: dict) -> tuple[str, bool]:
+    location = locate_root_instructions(text)
+    if location is None:
+        value = merge_root_policy_value("", policy_text, package)
+        prefix = f"developer_instructions = {quote_toml(value)}\n"
+        return prefix + ("\n" + text if text else ""), True
+    line_start, literal_end, _, value = location
+    replacement = f"developer_instructions = {quote_toml(merge_root_policy_value(value, policy_text, package))}"
+    return text[:line_start] + replacement + text[literal_end:], False
+
+
+def remove_root_policy_config(text: str, package: dict, assignment_created: bool) -> str:
+    location = locate_root_instructions(text)
+    if location is None: raise PackageError("managed root policy assignment missing; uninstall refused")
+    line_start, literal_end, replace_line_end, value = location
+    unmanaged, found = remove_root_policy_value(value, package)
+    if not found: raise PackageError("managed root policy marker missing; uninstall refused")
+    if assignment_created and not unmanaged:
+        if replace_line_end < len(text) and text[replace_line_end:replace_line_end + 1] == "\n":
+            replace_line_end += 1
+        return text[:line_start] + text[replace_line_end:]
+    replacement = f"developer_instructions = {quote_toml(unmanaged)}"
+    return text[:line_start] + replacement + text[literal_end:]
+
+
+def merge_deployment_config(text: str, fragment: str, policy_text: str, package: dict) -> tuple[str, bool]:
+    with_policy, assignment_created = merge_root_policy_config(text, policy_text, package)
+    return merge_managed_block(with_policy, fragment, package), assignment_created
+
+
 def command_version(command: str) -> str | None:
     executable = shutil.which(command)
     if not executable: return None
@@ -343,6 +490,7 @@ def probe_ccr_plugin_package(data: dict) -> dict:
 
 def desired_state_matches(data: dict, codex_home: Path, ccr_home: Path) -> bool:
     package = package_config(); config = codex_home / "config.toml"
+    root_policy, _ = load_policy_sources(package); policy_text = render_root_policy(root_policy)
     with tempfile.TemporaryDirectory(prefix="worker-pool-noop-") as temp:
         rendered = Path(temp); render_tree(data, rendered, codex_home)
         pairs = [(rendered / "models.worker.json", codex_home / "models.worker.json")]
@@ -350,7 +498,8 @@ def desired_state_matches(data: dict, codex_home: Path, ccr_home: Path) -> bool:
         if any(not target.is_file() or source.read_bytes() != target.read_bytes() for source, target in pairs): return False
         existing = config.read_text(encoding="utf-8") if config.is_file() else ""
         fragment = (rendered / "config.fragment.toml").read_text(encoding="utf-8")
-        if merge_managed_block(existing, fragment, package) != existing: return False
+        desired_config, _ = merge_deployment_config(existing, fragment, policy_text, package)
+        if desired_config != existing: return False
         desired_plugin = rendered / "ccr-plugin"; shutil.copytree(ROOT / "plugins" / package["plugin_id"], desired_plugin)
         shutil.copy2(rendered / "plugin-profile.json", desired_plugin / "capability-profile.json")
         installed_plugin = ccr_home / "plugins" / package["plugin_id"]
@@ -361,7 +510,10 @@ def plan(data: dict) -> dict:
     package = package_config(); profile, _, _ = load_sources(data)
     codex_home, ccr_home = resolve_home(data["deployment"]["codex_home"], "codex"), resolve_home(data["deployment"]["ccr_home"], "ccr")
     ensure_supported_upgrade(codex_home, ccr_home, package)
-    config = codex_home / "config.toml"; check_conflicts(config.read_text(encoding="utf-8") if config.is_file() else "", package)
+    config = codex_home / "config.toml"; existing_config = config.read_text(encoding="utf-8") if config.is_file() else ""
+    check_conflicts(existing_config, package)
+    root_policy, _ = load_policy_sources(package)
+    merge_root_policy_config(existing_config, render_root_policy(root_policy), package)
     probe = probe_ccr_plugin_package(data)
     artifacts = [codex_home / "agents" / f"{r}.toml" for r in roles_from(package)] + [codex_home / "models.worker.json"]
     plugin_target = ccr_home / "plugins" / package["plugin_id"]
@@ -370,7 +522,7 @@ def plan(data: dict) -> dict:
     create, modify = [str(p) for p in targets if not p.exists()], [str(p) for p in targets if p.exists()]
     state = "NOOP" if desired_state_matches(data, codex_home, ccr_home) else "CHANGES_REQUIRED"
     if state == "NOOP": create, modify = [], []
-    return {"detected": {"codex": command_version("codex") or "not-detected", "ccr": command_version("ccr") or "not-detected"}, "target": {"local_provider": package["local_provider_id"], "gateway": data["gateway"]["base_url"], "model_selector": data["worker"]["model_selector"], "effective_model_identity": data["worker"].get("effective_model_identity", "USER_MUST_VERIFY"), "profile": f"{profile['id']}@{profile['version']}", "ccr_plugin_activation": package["ccr_plugin_activation"]}, "deployment_state": state, "will_create": create, "will_modify": modify, "will_preserve": ["root model/provider", "login/auth", "unmanaged agents", "MCP", "tools", "unrelated instructions", "CCR runtime gateway config"], "external_dependencies": ["Codex login", "CCR upstream route and credential", data["gateway"]["client_key_env"], "Enable the copied plugin through CCR Extensions"], "restart_required": True, "compatibility_status": "MANUAL_ACTIVATION_REQUIRED" if probe["status"] == "PASS" else "INCOMPATIBLE", "ccr_plugin_package_contract": probe, "codex_home": str(codex_home), "ccr_home": str(ccr_home)}
+    return {"detected": {"codex": command_version("codex") or "not-detected", "ccr": command_version("ccr") or "not-detected"}, "target": {"local_provider": package["local_provider_id"], "gateway": data["gateway"]["base_url"], "model_selector": data["worker"]["model_selector"], "effective_model_identity": data["worker"].get("effective_model_identity", "USER_MUST_VERIFY"), "profile": f"{profile['id']}@{profile['version']}", "ccr_plugin_activation": package["ccr_plugin_activation"]}, "deployment_state": state, "will_create": create, "will_modify": modify, "will_preserve": ["root model/provider", "login/auth", "unmanaged agents", "MCP", "tools", "unmanaged root developer instructions", "CCR runtime gateway config"], "external_dependencies": ["Codex login", "CCR upstream route and credential", data["gateway"]["client_key_env"], "Enable the copied plugin through CCR Extensions"], "restart_required": True, "compatibility_status": "MANUAL_ACTIVATION_REQUIRED" if probe["status"] == "PASS" else "INCOMPATIBLE", "ccr_plugin_package_contract": probe, "codex_home": str(codex_home), "ccr_home": str(ccr_home)}
 
 
 def print_plan(value: dict) -> None: print("DEPLOYMENT PLAN\n" + stable_json(value), end="")
@@ -412,10 +564,7 @@ def ensure_supported_upgrade(codex_home: Path, ccr_home: Path, package: dict) ->
         )
     expected_targets = managed_target_set(package)
     recorded_targets = manifest.get("managed_target_set")
-    if recorded_targets is None and installed == "0.3.0":
-        if set(manifest.get("installed_hashes", {})) != managed_target_paths(codex_home, ccr_home, package):
-            raise PackageError("MANAGED TARGET SET CHANGED WITHIN PATCH SERIES: bump the package minor version")
-    elif not isinstance(recorded_targets, list) or sorted(recorded_targets) != expected_targets:
+    if not isinstance(recorded_targets, list) or sorted(recorded_targets) != expected_targets:
         raise PackageError("MANAGED TARGET SET CHANGED WITHIN PATCH SERIES: bump the package minor version")
 
 
@@ -426,6 +575,7 @@ def apply(data: dict) -> None:
         print("NOOP: installed package artifacts already match declarative configuration; no revision created")
         return
     package = package_config(); codex_home, ccr_home = Path(value["codex_home"]), Path(value["ccr_home"])
+    root_policy, _ = load_policy_sources(package); policy_text = render_root_policy(root_policy)
     ensure_supported_upgrade(codex_home, ccr_home, package)
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     backup_setting = data["deployment"].get("backup_root", "auto")
@@ -449,14 +599,17 @@ def apply(data: dict) -> None:
         config = codex_home / "config.toml"; old = config.read_text(encoding="utf-8") if config.exists() else ""
         if config.exists(): backup(config, Path("config.toml"))
         else: created.append(str(config))
-        write_text(config, merge_managed_block(old, (rendered / "config.fragment.toml").read_text(encoding="utf-8"), package))
+        merged_config, root_policy_assignment_created = merge_deployment_config(
+            old, (rendered / "config.fragment.toml").read_text(encoding="utf-8"), policy_text, package
+        )
+        write_text(config, merged_config)
         if plugin_target.exists():
             destination = backup_root / "ccr-plugin" / plugin_target.name; destination.parent.mkdir(parents=True, exist_ok=True); shutil.copytree(plugin_target, destination)
             backups[str(plugin_target)] = str(destination); modified.append(str(plugin_target)); shutil.rmtree(plugin_target)
         else: created.append(str(plugin_target))
         plugin_target.parent.mkdir(parents=True, exist_ok=True); shutil.copytree(ROOT / "plugins" / package["plugin_id"], plugin_target); shutil.copy2(rendered / "plugin-profile.json", plugin_target / "capability-profile.json")
     hashes = {item: artifact_hash(Path(item)) for item in created + modified if Path(item).exists()}
-    manifest = {"schema_version": 2, "package_version": package["package_version"], "managed_target_set": managed_target_set(package), "timestamp": timestamp, "created": created, "modified": modified, "backups": backups, "installed_hashes": hashes, "previous_current": previous}
+    manifest = {"schema_version": 2, "package_version": package["package_version"], "managed_target_set": managed_target_set(package), "timestamp": timestamp, "created": created, "modified": modified, "backups": backups, "installed_hashes": hashes, "previous_current": previous, "root_policy_assignment_created": root_policy_assignment_created}
     manifest_path = revision / "revision-manifest.json"
     write_text(manifest_path, stable_json(manifest)); write_text(current, stable_json({"revision": timestamp, "manifest": str(manifest_path)}))
     baseline = codex_home / "deployment-package-state" / "baseline.json"
@@ -509,10 +662,20 @@ def uninstall(data: dict) -> None:
     manifest = json.loads(baseline_path.read_text(encoding="utf-8"))
     config, ccr_home = codex_home / "config.toml", resolve_home(data["deployment"]["ccr_home"], "ccr")
     created_set = set(manifest["created"])
+    assignment_created = manifest.get("root_policy_assignment_created")
+    if type(assignment_created) is not bool:
+        raise PackageError("installation baseline lacks root policy ownership metadata; uninstall refused")
     if config.is_file():
         cleaned, found = remove_managed_block(config.read_text(encoding="utf-8"), package)
         if not found: raise PackageError("managed marker missing; uninstall refused")
+        cleaned = remove_root_policy_config(cleaned, package, assignment_created)
+        baseline_backup = manifest["backups"].get(str(config))
         if str(config) in created_set and not cleaned.strip(): config.unlink()
+        elif baseline_backup:
+            baseline_source = Path(baseline_backup)
+            baseline_text = baseline_source.read_text(encoding="utf-8")
+            if tomllib.loads(cleaned) == tomllib.loads(baseline_text): shutil.copy2(baseline_source, config)
+            else: write_text(config, cleaned.rstrip() + "\n")
         else: write_text(config, cleaned.rstrip() + "\n")
     for item in manifest["created"] + manifest["modified"]:
         path = Path(item)
@@ -595,17 +758,32 @@ def validate() -> None:
         parsed_ipv6 = parse_gateway_url("http://[::1]:3456/v1")
         if parsed_ipv6.hostname != "::1" or parsed_ipv6.port != 3456 or gateway_responses_endpoint(parsed_ipv6.geturl()) != "http://[::1]:3456/v1/responses":
             raise PackageError("IPv6 loopback gateway URL contract failed")
-        once = merge_managed_block('model = "official-root"\n', fragment, package); twice = merge_managed_block(once, fragment, package)
-        if once != twice or "official-root" not in twice: raise PackageError("apply idempotence/preservation failed")
+        original_config = 'model = "official-root"\ndeveloper_instructions = """operator root\ninstructions"""\n'
+        policy_text = render_root_policy(policy)
+        once, assignment_created = merge_deployment_config(original_config, fragment, policy_text, package)
+        twice, _ = merge_deployment_config(once, fragment, policy_text, package)
+        parsed_once = tomllib.loads(once); root_value = parsed_once.get("developer_instructions", "")
+        root_begin, root_end = root_policy_markers(package)
+        if once != twice or assignment_created or parsed_once.get("model") != "official-root":
+            raise PackageError("apply idempotence/root config preservation failed")
+        if not root_value.startswith("operator root\ninstructions") or root_value.count(root_begin) != 1 or root_value.count(root_end) != 1:
+            raise PackageError("managed root lifecycle policy was not merged exactly once")
+        without_fragment, found_fragment = remove_managed_block(once, package)
+        removed_policy = remove_root_policy_config(without_fragment, package, assignment_created)
+        if not found_fragment or tomllib.loads(removed_policy) != tomllib.loads(original_config):
+            raise PackageError("root policy uninstall merge does not preserve unmanaged config")
+        try: remove_root_policy_value(root_begin + "\nbroken", package)
+        except PackageError: pass
+        else: raise PackageError("malformed root policy markers were not rejected")
     probe = probe_ccr_plugin_package(data)
     if probe["status"] != "PASS": raise PackageError(f"CCR plugin package contract failed: {probe['detail']}")
-    print("VALIDATION PASS: sources lifecycle-capabilities ModelInfo provider sandbox-network secrets determinism merge plugin-package contract")
+    print("VALIDATION PASS: sources lifecycle-capabilities ModelInfo provider sandbox-network secrets determinism root-policy ownership merge plugin-package contract")
 
 
 def codex_contract(data: dict) -> None:
     executable = shutil.which("codex")
     if not executable: raise PackageError("Codex executable missing")
-    package = package_config()
+    package = package_config(); root_policy, _ = load_policy_sources(package)
     with tempfile.TemporaryDirectory(prefix="codex-contract-home-") as temp:
         home, rendered = Path(temp), Path(temp) / "rendered"; render_tree(data, rendered, home); (home / "agents").mkdir()
         shutil.copy2(rendered / "models.worker.json", home / "models.worker.json")
@@ -619,6 +797,18 @@ def codex_contract(data: dict) -> None:
         # does not load config, and `doctor` performs network checks. The offline
         # consumer contract therefore uses debug prompt-input per role. Codex is
         # the schema authority; package validation checks only owned invariants.
+        root_config, assignment_created = merge_deployment_config(
+            'developer_instructions = "operator-owned root contract"\n',
+            fragment,
+            render_root_policy(root_policy),
+            package,
+        )
+        if assignment_created or not tomllib.loads(root_config)["developer_instructions"].startswith("operator-owned root contract"):
+            raise PackageError("root developer_instructions ownership contract failed")
+        write_text(home / "config.toml", root_config)
+        root_consumer = subprocess.run([executable, "debug", "prompt-input", "root contract fixture"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, env=child_env)
+        if root_consumer.returncode:
+            raise PackageError("Codex root policy consumer contract failed: " + (root_consumer.stderr or root_consumer.stdout).strip()[:500])
         for role in roles_from(package):
             role_config = (rendered / "agents" / f"{role}.toml").read_text(encoding="utf-8")
             write_text(home / "config.toml", role_config + "\n" + fragment)
@@ -631,7 +821,7 @@ def codex_contract(data: dict) -> None:
         if not target or target.get("auto_review_model_override") != selector or target.get("apply_patch_tool_type") != "freeform": raise PackageError("Codex loaded contract differs")
         if target.get("model_messages", {}).get("instructions_template") != expected_instructions:
             raise PackageError("Codex loaded model_messages instructions differ")
-    print("CODEX CONTRACT PASS: seven role configs and native model catalog loaded offline")
+    print("CODEX CONTRACT PASS: managed root policy, seven role configs and native model catalog loaded offline")
 
 
 def doctor(data: dict, live: bool, confirm_cost: bool) -> None:

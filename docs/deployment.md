@@ -16,10 +16,12 @@
 
 ## Existing machine
 
-The deployer parses and inspects the existing Codex configuration. It removes
-only its previous marked block and appends the newly rendered block. It aborts
-if any managed role name is present outside that block. Root model/provider,
-auth, MCP, other agents/tools, and unrelated instructions are preserved.
+The deployer parses and inspects the existing Codex configuration. It replaces
+only its previous marked TOML block and its marked root-policy block inside the
+top-level `developer_instructions` string. It aborts if any managed role name is
+present outside the TOML block, or if the root string uses syntax that cannot be
+located and rewritten safely. Root model/provider, auth, MCP, other agents/tools,
+and operator-owned root instructions are preserved.
 
 ## Plan and compatibility states
 
@@ -36,12 +38,14 @@ operator-verified effective model identity. `ccr_flash_worker`, the profile,
 and manual activation policy are package-controlled. The renderer rejects non-loopback
 gateway URLs so a CCR local client credential cannot be sent to a remote host.
 
-Revision manifests record paths, backup paths, package version, timestamp, and
-artifact hashes—not secret values. A converged apply is a NOOP and creates no
-revision. Rollback restores only the preceding package revision. Uninstall
-restores the first-install baseline and removes only unchanged package-owned
-artifacts and its marked block; it never runs Git reset/clean or deletes unknown
-configuration.
+Revision manifests record paths, backup paths, package version, timestamp,
+artifact hashes, and only the boolean needed to distinguish a package-created
+root assignment—not instruction contents or secret values. A converged apply is
+a NOOP and creates no revision. Rollback restores only the preceding package
+revision. Uninstall removes both managed blocks and unchanged package-owned
+artifacts. If the remaining config is semantically equal to the first-install
+baseline, its exact backup bytes are restored; otherwise unrelated operator
+edits are retained. It never runs Git reset/clean or deletes unknown config.
 
 ## CCR Desktop extension activation
 
@@ -65,11 +69,12 @@ controlled live namespace smoke after activation.
 
 ## Patch-series ownership rule
 
-Patch releases within `0.3.x` must preserve the semantic managed target set:
+Patch releases within `0.4.x` must preserve the semantic managed target set:
 the config marker, local provider id, model catalog path, role names/paths, and
-CCR plugin id/path. Revision manifests record this set and refuse a patch apply
-when it changes. Adding/removing a role or changing an ownership contract
-requires a minor package version bump and an explicit uninstall/redeploy path.
+CCR plugin id/path, plus root-policy ownership. Revision manifests record this
+set and refuse a patch apply when it changes. Adding/removing a role or changing
+an ownership contract requires a minor package version bump and an explicit
+uninstall/redeploy path.
 
 ## 0.2 to 0.3 lifecycle boundary
 
@@ -77,3 +82,12 @@ Version 0.2 managed an internal CCR runtime file; 0.3 deliberately does not.
 The 0.3 deployer refuses an in-place 0.2 lifecycle upgrade. Use the original
 0.2 checkout to uninstall its deployment, confirm CCR runtime configuration is
 restored, then deploy 0.3 and enable the extension through CCR Desktop.
+
+## 0.3 to 0.4 root-policy ownership boundary
+
+Version 0.3 packaged root lifecycle intent as an audit artifact but did not
+install it. Version 0.4 owns one marked semantic block inside the existing root
+`developer_instructions` string. The 0.4 deployer refuses an in-place 0.3
+upgrade. Uninstall the active 0.3 deployment with its original checkout, review
+the 0.4 dry-run plan, then apply 0.4. Existing operator root instructions are
+merged and preserved; no root model/provider setting changes.
