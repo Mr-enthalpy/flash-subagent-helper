@@ -1,0 +1,23 @@
+schema_version = 1
+id = "subagent-lifecycle"
+policy_status = "READY"
+same_thread_reuse_status = "DEGRADED"
+
+lifecycle_policy = """Treat subagents as reusable context-bearing workers rather than one-shot RPCs. Prefer verified follow-up when role, workstream, health, and runtime capability remain aligned. Task completion does not end worker lifetime. Use read-only project synchronization before replacing stale but valuable workers. Spawn primarily for useful parallelism, independent review, context isolation, or a new workstream. Reclaim completed ephemeral workers before reusable workers and active-workstream residents. Evict only after semantic persistent failure. Root owns lifecycle, capacity, sibling coordination, stage gates, and assignment-scoped write ownership; workers remain leaf agents."""
+
+runtime_capability_gate = """Reuse is capability-gated. When the active runtime cannot reliably deliver same-thread follow-up or project synchronization, give one coherent workstream assignment, require a compact WORKSTREAM CHECKPOINT, and continue with a fresh typed worker using a CONTINUATION VIA CHECKPOINT packet. Never label that fresh spawn as context reuse, and never use send_message as a resume substitute. Project recovery uses the latest checkpoint plus relevant current diff/state. Root retains specification, architecture, stage gates, independent audit, and user escalation."""
+
+[role_defaults]
+deepseek_scout = "reusable-primary-ephemeral-parallel"
+deepseek_analyst = "resident-or-reusable"
+deepseek_auditor = "reusable-or-ephemeral-independent"
+deepseek_coder = "resident-or-reusable"
+deepseek_test_coder = "resident-or-reusable"
+deepseek_config_coder = "resident"
+deepseek_worker = "ephemeral-or-reusable"
+
+[degraded_mode]
+checkpoint_required = true
+continuation_label = "CONTINUATION VIA CHECKPOINT"
+send_message_fallback = false
+project_state_recovery = true

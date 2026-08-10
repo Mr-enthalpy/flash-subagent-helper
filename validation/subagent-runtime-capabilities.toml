@@ -1,0 +1,34 @@
+schema_version = 1
+profile_id = "subagent-runtime-capabilities"
+verified_date = "2026-08-10"
+runtime_build = "UNRESOLVED_DESKTOP_BUILD"
+failure_layer = "CODEX_CHILD_HANDOFF_FAILURE"
+
+[capabilities]
+spawn_typed_worker = "PASS"
+parallel_typed_workers = "PASS"
+same_thread_followup = "FAIL"
+same_thread_project_sync = "FAIL"
+heterogeneous_reload_identity = "UNVERIFIED"
+independent_auditor = "PASS"
+workspace_write = "PASS"
+guardian_auto_review = "PASS"
+
+[followup_probe]
+spawn_marker_returned = true
+followup_call_accepted = true
+delta_seen_in_ccr_request = false
+old_assignment_replayed = true
+upstream_reached = true
+upstream_status = 200
+captured_secrets = false
+
+[project_sync_probe]
+initial_state = "STATE_A"
+current_fixture_state = "STATE_B"
+returned_state = "STATE_A"
+
+[cleanup]
+mailbox_queue_zero = true
+fixture_removed = true
+temporary_files_removed = true

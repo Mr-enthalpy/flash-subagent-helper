@@ -16,6 +16,13 @@ Repository configuration is publishable intent. `deployment.local.toml` is
 non-secret but machine-local and ignored. Secret values are external. Generated
 artifacts are deterministic and are installed with a revision manifest.
 
+`policy/subagent-lifecycle.toml` is the provider-independent source for worker
+lifecycle intent and degraded continuation semantics. The sanitized tested
+baseline lives in `validation/subagent-runtime-capabilities.toml`. Both are
+validated and deterministically rendered into audit artifacts. The 0.3.x
+deployer still preserves root `developer_instructions`; changing that ownership
+boundary requires a minor release and explicit migration contract.
+
 Ownership is narrow: `[model_providers.ccr_flash_worker]`, seven `[agents.*]`
 tables, seven generated role files, one worker model catalog, and one CCR plugin
 directory. The plugin directory is copied for operator activation through CCR

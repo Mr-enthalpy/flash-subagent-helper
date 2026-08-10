@@ -36,5 +36,11 @@ Live acceptance is a controlled operator procedure:
 6. use a fresh read-only auditor;
 7. remove only the fixture and confirm no packet/temp residue.
 
+The live lifecycle gate additionally runs random-marker typed spawn, same-thread
+DELTA, PROJECT SYNC, heterogeneous reload identity, parallel worker, independent
+auditor, workspace-write, and Guardian probes. Record only the matrix and
+sanitized marker-presence/status evidence described in
+`subagent-runtime-capabilities.md`; never store prompt or request bodies.
+
 The live request can consume tokens and requires permission to use the selected
 provider. It must not print prompts, request bodies, credentials, or user data.

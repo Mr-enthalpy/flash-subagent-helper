@@ -10,6 +10,7 @@ deployment.example.toml
 docs/**
 package.toml
 plugins/**
+policy/**
 profile/**
 publish-allowlist.txt
 roles/**
@@ -17,3 +18,4 @@ rules/**
 schemas/**
 scripts/**
 tests/**
+validation/**

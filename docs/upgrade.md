@@ -9,7 +9,8 @@ upgrade:
 4. run all compatibility fixtures;
 5. run offline/local doctor;
 6. run a controlled, explicitly authorized live read-only and isolated-write
-   smoke, including Guardian auto-review, receipt, independent audit, cleanup;
+   smoke, including Guardian auto-review, receipt, independent audit, cleanup,
+   same-thread DELTA, PROJECT SYNC, and heterogeneous reload identity;
 7. update `VERSION_MATRIX.md` and the profile version/baseline;
 8. mark the version VERIFIED only after every required layer passes.
 
@@ -32,3 +33,8 @@ When the Codex sandbox/network schema changes, re-check that the intentional
 read-only defense-in-depth declaration is still accepted and whether Codex now
 offers a more precise read-only network-deny field or a documented stable
 fail-closed contract.
+
+Runtime lifecycle capabilities are partial and must not be collapsed into a
+single READY flag. Upgrade validation updates the sanitized capability report;
+same-thread reuse is promoted only when both DELTA delivery and PROJECT SYNC
+pass. An unverified heterogeneous reload permits active-thread reuse only.

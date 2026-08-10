@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FORBIDDEN_NAMES = {"auth.json", "cap_sid", "models_cache.json", ".env", ".codex-global-state.json"}
-PACKAGE_KEYS = {"schema_version", "package_id", "package_version", "managed_marker", "local_provider_id", "plugin_id", "profile_id", "ccr_plugin_activation", "roles"}
+PACKAGE_KEYS = {"schema_version", "package_id", "package_version", "managed_marker", "local_provider_id", "plugin_id", "profile_id", "ccr_plugin_activation", "root_policy_file", "runtime_capability_report", "roles"}
 DEPLOYMENT_KEYS = {
     "deployment": {"codex_home", "ccr_home", "backup_root"},
     "gateway": {"base_url", "client_key_env"},
@@ -30,6 +30,10 @@ DEPLOYMENT_KEYS = {
 }
 PROFILE_KEYS = {"schema_version", "id", "version", "codex_baseline", "model_template", "responses_endpoint_suffix", "unsupported_tool_types", "tool_choice_fallback"}
 ROLE_KEYS = {"id", "description", "sandbox", "sandbox_network_access", "instructions"}
+ROOT_POLICY_KEYS = {"schema_version", "id", "policy_status", "same_thread_reuse_status", "lifecycle_policy", "runtime_capability_gate", "role_defaults", "degraded_mode"}
+RUNTIME_REPORT_KEYS = {"schema_version", "profile_id", "verified_date", "runtime_build", "failure_layer", "capabilities", "followup_probe", "project_sync_probe", "cleanup"}
+RUNTIME_CAPABILITIES = {"spawn_typed_worker", "parallel_typed_workers", "same_thread_followup", "same_thread_project_sync", "heterogeneous_reload_identity", "independent_auditor", "workspace_write", "guardian_auto_review"}
+CAPABILITY_RESULTS = {"PASS", "FAIL", "UNVERIFIED"}
 MODELINFO_REQUIRED_KEYS = {
     "slug", "auto_review_model_override", "apply_patch_tool_type",
     "model_messages", "supports_search_tool", "base_instructions",
@@ -61,10 +65,63 @@ def package_config() -> dict:
         raise PackageError("package.toml plugin_id does not resolve to a matching plugin manifest")
     if value["ccr_plugin_activation"] != "manual":
         raise PackageError("unsupported CCR plugin activation policy")
+    for key in ("root_policy_file", "runtime_capability_report"):
+        relative = Path(value[key])
+        target = (ROOT / relative).resolve()
+        if relative.is_absolute() or ".." in relative.parts or ROOT not in target.parents or not target.is_file():
+            raise PackageError(f"package.toml {key} does not resolve to a safe source file")
     return value
 
 
 def roles_from(package: dict) -> tuple[str, ...]: return tuple(package["roles"])
+
+
+def load_policy_sources(package: dict) -> tuple[dict, dict]:
+    policy = load_toml(ROOT / package["root_policy_file"])
+    report = load_toml(ROOT / package["runtime_capability_report"])
+    exact_keys("root lifecycle policy", policy, ROOT_POLICY_KEYS)
+    exact_keys("runtime capability report", report, RUNTIME_REPORT_KEYS)
+    if policy["schema_version"] != 1 or policy["id"] != "subagent-lifecycle" or policy["policy_status"] != "READY":
+        raise PackageError("root lifecycle policy identity/status invalid")
+    if policy["same_thread_reuse_status"] not in {"DEGRADED", "SUPPORTED"}:
+        raise PackageError("root lifecycle reuse status invalid")
+    if not all(isinstance(policy[key], str) and policy[key].strip() for key in ("lifecycle_policy", "runtime_capability_gate")):
+        raise PackageError("root lifecycle policy text missing")
+    exact_keys("root lifecycle role defaults", policy["role_defaults"], set(roles_from(package)))
+    allowed_lifecycles = {"resident", "resident-or-reusable", "reusable-primary-ephemeral-parallel", "reusable-or-ephemeral-independent", "ephemeral-or-reusable"}
+    if any(value not in allowed_lifecycles for value in policy["role_defaults"].values()):
+        raise PackageError("root lifecycle role default invalid")
+    exact_keys("degraded mode", policy["degraded_mode"], {"checkpoint_required", "continuation_label", "send_message_fallback", "project_state_recovery"})
+    degraded = policy["degraded_mode"]
+    if any(type(degraded[key]) is not bool for key in ("checkpoint_required", "send_message_fallback", "project_state_recovery")) or not isinstance(degraded["continuation_label"], str):
+        raise PackageError("degraded continuation types invalid")
+    if degraded != {"checkpoint_required": True, "continuation_label": "CONTINUATION VIA CHECKPOINT", "send_message_fallback": False, "project_state_recovery": True}:
+        raise PackageError("degraded continuation invariants invalid")
+    if report["schema_version"] != 1 or report["profile_id"] != "subagent-runtime-capabilities":
+        raise PackageError("runtime capability report identity invalid")
+    exact_keys("runtime capabilities", report["capabilities"], RUNTIME_CAPABILITIES)
+    if any(value not in CAPABILITY_RESULTS for value in report["capabilities"].values()):
+        raise PackageError("runtime capability result invalid")
+    exact_keys("follow-up probe", report["followup_probe"], {"spawn_marker_returned", "followup_call_accepted", "delta_seen_in_ccr_request", "old_assignment_replayed", "upstream_reached", "upstream_status", "captured_secrets"})
+    exact_keys("project-sync probe", report["project_sync_probe"], {"initial_state", "current_fixture_state", "returned_state"})
+    exact_keys("runtime cleanup", report["cleanup"], {"mailbox_queue_zero", "fixture_removed", "temporary_files_removed"})
+    followup = report["followup_probe"]
+    if any(type(followup[key]) is not bool for key in ("spawn_marker_returned", "followup_call_accepted", "delta_seen_in_ccr_request", "old_assignment_replayed", "upstream_reached", "captured_secrets")):
+        raise PackageError("follow-up probe types invalid")
+    if type(followup["upstream_status"]) is not int or not 100 <= followup["upstream_status"] <= 599:
+        raise PackageError("follow-up upstream status invalid")
+    if any(not isinstance(value, str) or not value for value in report["project_sync_probe"].values()):
+        raise PackageError("project-sync probe values invalid")
+    if any(type(value) is not bool for value in report["cleanup"].values()):
+        raise PackageError("runtime cleanup types invalid")
+    if followup["captured_secrets"] is not False or not all(report["cleanup"].values()):
+        raise PackageError("runtime capability report violates secret/cleanup invariants")
+    degraded_runtime = report["capabilities"]["same_thread_followup"] != "PASS" or report["capabilities"]["same_thread_project_sync"] != "PASS"
+    if degraded_runtime != (policy["same_thread_reuse_status"] == "DEGRADED"):
+        raise PackageError("policy readiness and runtime reuse status disagree")
+    if report["failure_layer"] not in {"CODEX_CHILD_HANDOFF_FAILURE", "CCR_COMPATIBILITY_FAILURE", "PROVIDER_MODEL_EXECUTION_FAILURE", "THREAD_RESIDENCY_RESUME_FAILURE", "NONE", "UNRESOLVED"}:
+        raise PackageError("runtime failure layer invalid")
+    return policy, report
 
 
 def markers(package: dict) -> tuple[str, str]:
@@ -198,11 +255,21 @@ def render_catalog(profile: dict, selector: str) -> dict:
     return catalog
 
 
+def render_root_policy(policy: dict) -> str:
+    roles = "; ".join(f"{name}={value}" for name, value in policy["role_defaults"].items())
+    return policy["lifecycle_policy"].strip() + "\n\n" + policy["runtime_capability_gate"].strip() + "\n\nROLE LIFECYCLE DEFAULTS: " + roles + ".\n"
+
+
 def render_tree(data: dict, output: Path, codex_home: Path | None = None) -> dict[str, str]:
     profile, roles, package = load_sources(data); worker, gateway = data["worker"], data["gateway"]
+    root_policy, runtime_report = load_policy_sources(package)
     provider_id, (begin, end) = package["local_provider_id"], markers(package)
     catalog_path = (codex_home / "models.worker.json") if codex_home else Path("<CODEX_HOME>") / "models.worker.json"
-    generated = {"models.worker.json": stable_json(render_catalog(profile, worker["model_selector"]))}
+    generated = {
+        "models.worker.json": stable_json(render_catalog(profile, worker["model_selector"])),
+        "audit/root-policy.txt": render_root_policy(root_policy),
+        "audit/runtime-capabilities.json": stable_json(runtime_report),
+    }
     # CODEX-SENSITIVE: native provider fields; verified Codex 0.146.0.
     # FAILURE SYMPTOM: workers inherit the root provider or local auth is unused.
     gateway_base = parse_gateway_url(gateway["base_url"]).geturl().rstrip("/")
@@ -499,6 +566,7 @@ def validate_template(profile: dict) -> None:
 
 def validate() -> None:
     package = package_config()
+    policy, runtime_report = load_policy_sources(package)
     for path in sorted(ROOT.rglob("*.toml")): load_toml(path)
     for path in sorted(ROOT.rglob("*.json")): json.loads(path.read_text(encoding="utf-8"))
     for path in sorted(ROOT.rglob("*.cjs")):
@@ -511,6 +579,10 @@ def validate() -> None:
         one, two = Path(a), Path(b); render_tree(data, one, Path("C:/fixture/codex-home")); render_tree(data, two, Path("C:/fixture/codex-home"))
         hashes = lambda root: {p.relative_to(root).as_posix(): sha256(p) for p in root.rglob("*") if p.is_file()}
         if hashes(one) != hashes(two): raise PackageError("render not deterministic")
+        if (one / "audit" / "root-policy.txt").read_text(encoding="utf-8") != render_root_policy(policy):
+            raise PackageError("root lifecycle policy render inconsistent")
+        if json.loads((one / "audit" / "runtime-capabilities.json").read_text(encoding="utf-8")) != runtime_report:
+            raise PackageError("runtime capability report render inconsistent")
         fragment = (one / "config.fragment.toml").read_text(encoding="utf-8"); parsed = tomllib.loads(fragment); provider = parsed["model_providers"][package["local_provider_id"]]
         expected = {"name": "CCR Flash Worker", "base_url": "http://127.0.0.1:3456/v1", "env_key": "FIXTURE_CCR_CLIENT_KEY", "wire_api": "responses", "requires_openai_auth": False}
         if provider != expected: raise PackageError("local provider incomplete")
@@ -527,7 +599,7 @@ def validate() -> None:
         if once != twice or "official-root" not in twice: raise PackageError("apply idempotence/preservation failed")
     probe = probe_ccr_plugin_package(data)
     if probe["status"] != "PASS": raise PackageError(f"CCR plugin package contract failed: {probe['detail']}")
-    print("VALIDATION PASS: sources ModelInfo provider sandbox-network secrets determinism merge plugin-package contract")
+    print("VALIDATION PASS: sources lifecycle-capabilities ModelInfo provider sandbox-network secrets determinism merge plugin-package contract")
 
 
 def codex_contract(data: dict) -> None:

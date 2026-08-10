@@ -14,7 +14,7 @@
 
 ```text
 Persistent intent
-  -> seven role files + one versioned DeepSeek Flash Responses profile
+  -> seven role files + root lifecycle policy + one versioned Responses profile
   -> deterministic renderer and ownership-aware deployer
   -> Codex root (preserved) + fixed local provider ccr_flash_worker
   -> CCR route + provider selected outside Codex
@@ -24,6 +24,12 @@ Persistent intent
 The Codex layer never receives an upstream provider id. It always uses the
 package-owned `ccr_flash_worker`; provider credentials and routes remain CCR
 responsibilities. See [architecture](docs/architecture.md).
+
+The repository also carries a provider-independent, machine-readable subagent
+lifecycle policy and a sanitized runtime capability baseline. Policy readiness
+does not imply runtime reuse readiness: the tested baseline currently marks
+same-thread follow-up and PROJECT SYNC as failed and requires checkpoint-based
+degraded continuation. See [runtime capabilities](docs/subagent-runtime-capabilities.md).
 
 ## Requirements
 
@@ -85,11 +91,17 @@ writes a local revision manifest and backups outside the repository; an
 already-converged apply is a NOOP and creates no revision. Uninstall restores
 the first-install baseline, while rollback restores the preceding revision.
 
+Version 0.3.x renders the lifecycle policy and capability report as auditable
+artifacts but deliberately does not claim ownership of an existing root
+`developer_instructions` value. Automating that ownership requires a future
+minor-version lifecycle contract; it must not be smuggled into a patch release.
+
 - [Deployment guide](docs/deployment.md)
 - [Provider integration](docs/provider-integration.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Test layers and live acceptance](docs/testing.md)
 - [Upgrade procedure](docs/upgrade.md)
+- [Subagent lifecycle and runtime capabilities](docs/subagent-runtime-capabilities.md)
 - [User responsibilities](USER_RESPONSIBILITIES.md)
 
 OpenAI documents Codex user/project configuration layering and precedence in
