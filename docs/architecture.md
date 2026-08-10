@@ -24,6 +24,14 @@ validated and deterministically rendered into audit artifacts. Starting with
 `developer_instructions` as a stable marked semantic block. Existing operator
 instructions remain outside that block and are preserved.
 
+Initial external-worker TASK delivery is a separate, capability-gated transport
+boundary: authoritative `TASK` packet → exact-role enqueue → fresh physical
+child with `fork_turns="none"` → matching `hook_emitted` receipt. In 0.4.x the
+mailbox implementation and `SubagentStart` registration are operator-managed
+external dependencies. The package owns the root gate and doctor diagnostics,
+not `hooks.json`; taking that ownership requires a future minor lifecycle
+boundary.
+
 Ownership is narrow: one root developer-instructions policy block,
 `[model_providers.ccr_flash_worker]`, seven `[agents.*]` tables, seven generated
 role files, one worker model catalog, and one CCR plugin directory. The plugin

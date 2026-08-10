@@ -30,9 +30,9 @@ DEPLOYMENT_KEYS = {
 }
 PROFILE_KEYS = {"schema_version", "id", "version", "codex_baseline", "model_template", "responses_endpoint_suffix", "unsupported_tool_types", "tool_choice_fallback"}
 ROLE_KEYS = {"id", "description", "sandbox", "sandbox_network_access", "instructions"}
-ROOT_POLICY_KEYS = {"schema_version", "id", "policy_status", "same_thread_reuse_status", "lifecycle_policy", "runtime_capability_gate", "role_defaults", "degraded_mode"}
-RUNTIME_REPORT_KEYS = {"schema_version", "profile_id", "verified_date", "runtime_build", "failure_layer", "capabilities", "followup_probe", "project_sync_probe", "cleanup"}
-RUNTIME_CAPABILITIES = {"spawn_typed_worker", "parallel_typed_workers", "same_thread_followup", "same_thread_project_sync", "heterogeneous_reload_identity", "independent_auditor", "workspace_write", "guardian_auto_review"}
+ROOT_POLICY_KEYS = {"schema_version", "id", "policy_status", "same_thread_reuse_status", "lifecycle_policy", "runtime_capability_gate", "external_task_delivery", "role_defaults", "degraded_mode"}
+RUNTIME_REPORT_KEYS = {"schema_version", "profile_id", "verified_date", "runtime_build", "failure_layer", "capabilities", "transport_probe", "followup_probe", "project_sync_probe", "cleanup"}
+RUNTIME_CAPABILITIES = {"mailbox_packet_validation", "mailbox_enqueue", "fresh_spawn_after_enqueue", "subagent_start_delivery", "hook_receipt_verification", "spawn_typed_worker", "parallel_typed_workers", "same_thread_followup", "same_thread_project_sync", "heterogeneous_reload_identity", "independent_auditor", "workspace_write", "guardian_auto_review"}
 CAPABILITY_RESULTS = {"PASS", "FAIL", "UNVERIFIED"}
 MODELINFO_REQUIRED_KEYS = {
     "slug", "auto_review_model_override", "apply_patch_tool_type",
@@ -85,7 +85,7 @@ def load_policy_sources(package: dict) -> tuple[dict, dict]:
         raise PackageError("root lifecycle policy identity/status invalid")
     if policy["same_thread_reuse_status"] not in {"DEGRADED", "SUPPORTED"}:
         raise PackageError("root lifecycle reuse status invalid")
-    if not all(isinstance(policy[key], str) and policy[key].strip() for key in ("lifecycle_policy", "runtime_capability_gate")):
+    if not all(isinstance(policy[key], str) and policy[key].strip() for key in ("lifecycle_policy", "runtime_capability_gate", "external_task_delivery")):
         raise PackageError("root lifecycle policy text missing")
     exact_keys("root lifecycle role defaults", policy["role_defaults"], set(roles_from(package)))
     allowed_lifecycles = {"resident", "resident-or-reusable", "reusable-primary-ephemeral-parallel", "reusable-or-ephemeral-independent", "ephemeral-or-reusable"}
@@ -102,6 +102,21 @@ def load_policy_sources(package: dict) -> tuple[dict, dict]:
     exact_keys("runtime capabilities", report["capabilities"], RUNTIME_CAPABILITIES)
     if any(value not in CAPABILITY_RESULTS for value in report["capabilities"].values()):
         raise PackageError("runtime capability result invalid")
+    transport_capabilities = ("mailbox_packet_validation", "mailbox_enqueue", "fresh_spawn_after_enqueue", "subagent_start_delivery", "hook_receipt_verification")
+    if report["capabilities"]["spawn_typed_worker"] == "PASS" and any(report["capabilities"][key] != "PASS" for key in transport_capabilities):
+        raise PackageError("spawn_typed_worker PASS requires verified enqueue-to-hook transport")
+    delivery = policy["external_task_delivery"]
+    required_delivery_terms = ("first line is exactly TASK", "exact role", "fork_turns=\"none\"", "hook_emitted", "TASK_NOT_RECEIVED", "cancel", "followup_task", "send_message")
+    if not all(term in delivery for term in required_delivery_terms):
+        raise PackageError("root external task delivery gate is incomplete")
+    if report["capabilities"]["same_thread_followup"] == "FAIL" and "never use followup_task" not in delivery:
+        raise PackageError("follow-up FAIL conflicts with authoritative delivery policy")
+    exact_keys("transport probe", report["transport_probe"], {"role", "task_name", "receipt_identity", "receipt_status", "timestamp", "queue_after", "result"})
+    transport = report["transport_probe"]
+    if any(not isinstance(transport[key], str) or not transport[key] for key in ("role", "task_name", "receipt_identity", "receipt_status", "timestamp", "result")):
+        raise PackageError("transport probe metadata invalid")
+    if type(transport["queue_after"]) is not int or transport["receipt_status"] != "hook_emitted" or transport["queue_after"] != 0 or transport["result"] != "PASS":
+        raise PackageError("transport probe does not prove acknowledged delivery and cleanup")
     exact_keys("follow-up probe", report["followup_probe"], {"spawn_marker_returned", "followup_call_accepted", "delta_seen_in_ccr_request", "old_assignment_replayed", "upstream_reached", "upstream_status", "captured_secrets"})
     exact_keys("project-sync probe", report["project_sync_probe"], {"initial_state", "current_fixture_state", "returned_state"})
     exact_keys("runtime cleanup", report["cleanup"], {"mailbox_queue_zero", "fixture_removed", "temporary_files_removed"})
@@ -230,7 +245,7 @@ def quote_toml(value: str) -> str: return json.dumps(value, ensure_ascii=False)
 def managed_target_set(package: dict) -> list[str]:
     """Semantic ownership set; patch releases must keep this list unchanged.
 
-    VERSION-SENSITIVE: verified for the 0.4.0 lifecycle. A mismatch means a
+    VERSION-SENSITIVE: verified for the 0.4.x lifecycle. A mismatch means a
     role/provider/plugin ownership change needs a minor version and redeploy.
     """
     targets = [
@@ -256,7 +271,7 @@ def render_catalog(profile: dict, selector: str) -> dict:
 
 def render_root_policy(policy: dict) -> str:
     roles = "; ".join(f"{name}={value}" for name, value in policy["role_defaults"].items())
-    return policy["lifecycle_policy"].strip() + "\n\n" + policy["runtime_capability_gate"].strip() + "\n\nROLE LIFECYCLE DEFAULTS: " + roles + ".\n"
+    return policy["lifecycle_policy"].strip() + "\n\n" + policy["runtime_capability_gate"].strip() + "\n\n" + policy["external_task_delivery"].strip() + "\n\nROLE LIFECYCLE DEFAULTS: " + roles + ".\n"
 
 
 def render_tree(data: dict, output: Path, codex_home: Path | None = None) -> dict[str, str]:
@@ -522,7 +537,9 @@ def plan(data: dict) -> dict:
     create, modify = [str(p) for p in targets if not p.exists()], [str(p) for p in targets if p.exists()]
     state = "NOOP" if desired_state_matches(data, codex_home, ccr_home) else "CHANGES_REQUIRED"
     if state == "NOOP": create, modify = [], []
-    return {"detected": {"codex": command_version("codex") or "not-detected", "ccr": command_version("ccr") or "not-detected"}, "target": {"local_provider": package["local_provider_id"], "gateway": data["gateway"]["base_url"], "model_selector": data["worker"]["model_selector"], "effective_model_identity": data["worker"].get("effective_model_identity", "USER_MUST_VERIFY"), "profile": f"{profile['id']}@{profile['version']}", "ccr_plugin_activation": package["ccr_plugin_activation"]}, "deployment_state": state, "will_create": create, "will_modify": modify, "will_preserve": ["root model/provider", "login/auth", "unmanaged agents", "MCP", "tools", "unmanaged root developer instructions", "CCR runtime gateway config"], "external_dependencies": ["Codex login", "CCR upstream route and credential", data["gateway"]["client_key_env"], "Enable the copied plugin through CCR Extensions"], "restart_required": True, "compatibility_status": "MANUAL_ACTIVATION_REQUIRED" if probe["status"] == "PASS" else "INCOMPATIBLE", "ccr_plugin_package_contract": probe, "codex_home": str(codex_home), "ccr_home": str(ccr_home)}
+    _, runtime_report = load_policy_sources(package); mailbox = mailbox_preflight(codex_home, runtime_report)
+    compatibility_status = "INCOMPATIBLE" if probe["status"] != "PASS" else ("MANUAL_ACTIVATION_REQUIRED" if mailbox["ready_for_transport_smoke"] else "EXTERNAL_MAILBOX_REQUIRED")
+    return {"detected": {"codex": command_version("codex") or "not-detected", "ccr": command_version("ccr") or "not-detected"}, "target": {"local_provider": package["local_provider_id"], "gateway": data["gateway"]["base_url"], "model_selector": data["worker"]["model_selector"], "effective_model_identity": data["worker"].get("effective_model_identity", "USER_MUST_VERIFY"), "profile": f"{profile['id']}@{profile['version']}", "ccr_plugin_activation": package["ccr_plugin_activation"]}, "deployment_state": state, "will_create": create, "will_modify": modify, "will_preserve": ["root model/provider", "login/auth", "unmanaged agents", "MCP", "tools", "unmanaged root developer instructions", "CCR runtime gateway config", "operator-managed mailbox/hook"], "external_dependencies": ["Codex login", "CCR upstream route and credential", data["gateway"]["client_key_env"], "Enable the copied plugin through CCR Extensions", "Install and register the external DeepSeek TASK mailbox + SubagentStart hook in CODEX_HOME"], "restart_required": True, "compatibility_status": compatibility_status, "mailbox_transport": mailbox, "ccr_plugin_package_contract": probe, "codex_home": str(codex_home), "ccr_home": str(ccr_home)}
 
 
 def print_plan(value: dict) -> None: print("DEPLOYMENT PLAN\n" + stable_json(value), end="")
@@ -706,6 +723,9 @@ def secret_scan() -> list[str]:
         relative = path.relative_to(ROOT).as_posix()
         if not any(fnmatch.fnmatch(relative, pattern) for pattern in patterns): findings.append(f"not in deployment allowlist: {relative}"); continue
         if path.name in FORBIDDEN_NAMES or path.suffix in {".sqlite", ".db"}: findings.append(f"forbidden file: {relative}"); continue
+        lower_parts = {part.lower() for part in path.parts}
+        if "mailbox" in relative.lower() and lower_parts.intersection({"queued", "receipts", "task-packets"}):
+            findings.append(f"forbidden mailbox runtime artifact: {relative}"); continue
         try: text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError: findings.append(f"binary/non-UTF8 file: {relative}"); continue
         findings += [f"{label}: {relative}" for label, regex in regexes if regex.search(text)]
@@ -824,6 +844,90 @@ def codex_contract(data: dict) -> None:
     print("CODEX CONTRACT PASS: managed root policy, seven role configs and native model catalog loaded offline")
 
 
+def mailbox_preflight(codex_home: Path, runtime_report: dict) -> dict:
+    """Inspect the operator-managed mailbox without reading TASK bodies."""
+    script = codex_home / "scripts" / "worker-task-mailbox.py"
+    hook_path = codex_home / "hooks.json"
+    result = {
+        "ownership": "EXTERNAL_OPERATOR_MANAGED",
+        "script_present": script.is_file(),
+        "hook_file_present": hook_path.is_file(),
+        "hook_registered": False,
+        "transport_commands": "NOT_AVAILABLE",
+        "packet_validator": "NOT_AVAILABLE",
+        "queue_accessible": False,
+        "queue_total": None,
+        "queue_state": "UNAVAILABLE",
+        "same_thread_followup": runtime_report["capabilities"]["same_thread_followup"],
+        "same_thread_project_sync": runtime_report["capabilities"]["same_thread_project_sync"],
+    }
+    if hook_path.is_file():
+        try:
+            hooks = json.loads(hook_path.read_text(encoding="utf-8"))["hooks"]["SubagentStart"]
+            roles = roles_from(package_config())
+            result["hook_registered"] = any(
+                isinstance(entry, dict)
+                and all(re.fullmatch(str(entry.get("matcher", "")), role) for role in roles)
+                and any(
+                    isinstance(hook, dict)
+                    and "worker-task-mailbox.py" in str(hook.get("commandWindows") or hook.get("command") or "")
+                    and str(hook.get("commandWindows") or hook.get("command") or "").rstrip().endswith(" hook")
+                    for hook in entry.get("hooks", [])
+                )
+                for entry in hooks
+            )
+        except (OSError, KeyError, TypeError, json.JSONDecodeError):
+            result["hook_registered"] = False
+    if script.is_file():
+        help_probe = subprocess.run(
+            [sys.executable, str(script), "--help"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+        required_commands = ("enqueue", "validate-packet", "ready-to-spawn", "hook", "status", "cancel", "verify-dispatch")
+        result["transport_commands"] = "PASS" if help_probe.returncode == 0 and all(command in help_probe.stdout for command in required_commands) else "FAIL"
+        validation = subprocess.run(
+            [sys.executable, str(script), "validate-packet"],
+            input="TASK\n\nOBJECTIVE\nProvider-safe preflight fixture.\n",
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+        result["packet_validator"] = "PASS" if validation.returncode == 0 else "FAIL"
+        status = subprocess.run(
+            [sys.executable, str(script), "status"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=10,
+        )
+        if status.returncode == 0:
+            try:
+                value = json.loads(status.stdout)
+                queue_total = int(value.get("queue_total", sum(value.get("queued", {}).values())))
+                residue = int(value.get("claimed", 0)) + int(value.get("temporary", 0))
+                result["queue_accessible"] = True
+                result["queue_total"] = queue_total + residue
+                result["queue_state"] = "EMPTY" if result["queue_total"] == 0 else "MAILBOX QUEUE NOT EMPTY"
+            except (TypeError, ValueError, json.JSONDecodeError):
+                result["queue_state"] = "INVALID_STATUS"
+    result["ready_for_transport_smoke"] = all((
+        result["script_present"],
+        result["hook_registered"],
+        result["transport_commands"] == "PASS",
+        result["packet_validator"] == "PASS",
+        result["queue_accessible"],
+        result["queue_total"] == 0,
+    ))
+    return result
+
+
 def doctor(data: dict, live: bool, confirm_cost: bool) -> None:
     value = plan(data); codex_home, ccr_home = Path(value["codex_home"]), Path(value["ccr_home"]); env_name = data["gateway"]["client_key_env"]
     gateway_url = parse_gateway_url(data["gateway"]["base_url"])
@@ -831,7 +935,7 @@ def doctor(data: dict, live: bool, confirm_cost: bool) -> None:
     try:
         with socket.create_connection((hostname, int(port or "80")), timeout=1): port_status = "reachable"
     except Exception: port_status = "not-reachable"
-    package = package_config(); report = {"powershell": command_version("pwsh") or "missing", "python": command_version("python") or sys.version.split()[0], "node": command_version("node") or "missing", "codex": value["detected"]["codex"], "ccr": value["detected"]["ccr"], "ccr_version_role": "audit-only", "ccr_port": port_status, "required_env_present": bool(os.environ.get(env_name)), "required_env_name": env_name, "model_catalog": (codex_home / "models.worker.json").is_file(), "registered_roles": all((codex_home / "agents" / f"{r}.toml").is_file() for r in roles_from(package)), "compatibility_plugin_copied": (ccr_home / "plugins" / package["plugin_id"]).is_dir(), "ccr_plugin_activation": "OPERATOR_CONFIRM_REQUIRED", "ccr_plugin_package_contract": value["ccr_plugin_package_contract"], "mode": "live" if live else "offline"}
+    package = package_config(); report = {"powershell": command_version("pwsh") or "missing", "python": command_version("python") or sys.version.split()[0], "node": command_version("node") or "missing", "codex": value["detected"]["codex"], "ccr": value["detected"]["ccr"], "ccr_version_role": "audit-only", "ccr_port": port_status, "required_env_present": bool(os.environ.get(env_name)), "required_env_name": env_name, "model_catalog": (codex_home / "models.worker.json").is_file(), "registered_roles": all((codex_home / "agents" / f"{r}.toml").is_file() for r in roles_from(package)), "compatibility_plugin_copied": (ccr_home / "plugins" / package["plugin_id"]).is_dir(), "ccr_plugin_activation": "OPERATOR_CONFIRM_REQUIRED", "ccr_plugin_package_contract": value["ccr_plugin_package_contract"], "mailbox_transport": value["mailbox_transport"], "mode": "live" if live else "offline"}
     if live:
         if not confirm_cost: raise PackageError("live mode may consume tokens; pass --confirm-cost")
         key = os.environ.get(env_name)

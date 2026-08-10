@@ -17,6 +17,7 @@ Persistent intent
   -> seven role files + root lifecycle policy + one versioned Responses profile
   -> deterministic renderer and ownership-aware deployer
   -> Codex root policy (managed merge; root model/provider preserved)
+  -> operator-managed mailbox: enqueue -> fresh spawn -> hook_emitted
   -> fixed local provider ccr_flash_worker
   -> CCR route + provider selected outside Codex
   -> OpenAI Responses-compatible DeepSeek Flash deployment
@@ -40,6 +41,8 @@ degraded continuation. See [runtime capabilities](docs/subagent-runtime-capabili
 - installed and authenticated official Codex client
 - installed CCR gateway
 - a separately configured upstream credential and CCR local client credential
+- an operator-installed DeepSeek TASK mailbox script and registered
+  `SubagentStart` hook in `CODEX_HOME` (external dependency in 0.4.x)
 
 ## Quick start
 
@@ -60,6 +63,12 @@ does not edit CCR's internal runtime configuration: enable
 `responses-tool-capability-compat` in CCR Desktop **Extensions** before restart.
 For the tested CCR 3.0.20 UI, choose the copied plugin **directory**; its
 `plugin.json` resolves the module to `index.cjs`. See the deployment guide.
+
+Version 0.4.x intentionally does not take ownership of an existing
+`hooks.json` or mailbox script. Doctor reports this prerequisite explicitly.
+External-worker deployment is not READY until an operator has installed the
+mailbox/hook and completed the provider-safe enqueue → fresh typed spawn →
+matching `hook_emitted` acceptance with queue zero.
 
 ```powershell
 .\scripts\doctor.ps1 -Live -ConfirmCost

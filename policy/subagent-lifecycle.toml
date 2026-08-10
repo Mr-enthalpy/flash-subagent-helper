@@ -7,6 +7,8 @@ lifecycle_policy = """Treat subagents as reusable context-bearing workers rather
 
 runtime_capability_gate = """Reuse is capability-gated. When the active runtime cannot reliably deliver same-thread follow-up or project synchronization, give one coherent workstream assignment, require a compact WORKSTREAM CHECKPOINT, and continue with a fresh typed worker using a CONTINUATION VIA CHECKPOINT packet. Never label that fresh spawn as context reuse, and never use send_message as a resume substitute. Project recovery uses the latest checkpoint plus relevant current diff/state. Root retains specification, architecture, stage gates, independent audit, and user escalation."""
 
+external_task_delivery = """External DeepSeek assignments are mailbox-gated. Before spawning, enqueue one authoritative packet whose first line is exactly TASK for the exact role, then confirm it is ready and use a fresh typed spawn with fork_turns=\"none\". Dispatch succeeds only after the matching SubagentStart receipt reports hook_emitted. Missing acknowledgement or TASK_NOT_RECEIVED is a transport failure, not a model failure. If spawn fails after enqueue, cancel the queued packet. While same-thread follow-up is unsupported, never use followup_task or send_message to repair or deliver an authoritative assignment. CONTINUATION VIA CHECKPOINT uses this same transaction."""
+
 [role_defaults]
 deepseek_scout = "reusable-primary-ephemeral-parallel"
 deepseek_analyst = "resident-or-reusable"

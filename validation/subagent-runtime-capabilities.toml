@@ -1,10 +1,15 @@
 schema_version = 1
 profile_id = "subagent-runtime-capabilities"
 verified_date = "2026-08-10"
-runtime_build = "UNRESOLVED_DESKTOP_BUILD"
+runtime_build = "Codex Desktop 26.803.5235.0"
 failure_layer = "CODEX_CHILD_HANDOFF_FAILURE"
 
 [capabilities]
+mailbox_packet_validation = "PASS"
+mailbox_enqueue = "PASS"
+fresh_spawn_after_enqueue = "PASS"
+subagent_start_delivery = "PASS"
+hook_receipt_verification = "PASS"
 spawn_typed_worker = "PASS"
 parallel_typed_workers = "PASS"
 same_thread_followup = "FAIL"
@@ -13,6 +18,15 @@ heterogeneous_reload_identity = "UNVERIFIED"
 independent_auditor = "PASS"
 workspace_write = "PASS"
 guardian_auto_review = "PASS"
+
+[transport_probe]
+role = "deepseek_auditor"
+task_name = "fixture_dispatch"
+receipt_identity = "SANITIZED_EXISTING_MAILBOX_RECEIPT"
+receipt_status = "hook_emitted"
+timestamp = "2026-08-10T21:24:42+08:00"
+queue_after = 0
+result = "PASS"
 
 [followup_probe]
 spawn_marker_returned = true

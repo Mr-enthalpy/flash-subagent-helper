@@ -10,7 +10,8 @@ upgrade:
 5. run offline/local doctor;
 6. run a controlled, explicitly authorized live read-only and isolated-write
    smoke, including Guardian auto-review, receipt, independent audit, cleanup,
-   same-thread DELTA, PROJECT SYNC, and heterogeneous reload identity;
+   strict mailbox TASK delivery, same-thread DELTA, PROJECT SYNC, and
+   heterogeneous reload identity;
 7. update `VERSION_MATRIX.md` and the profile version/baseline;
 8. mark the version VERIFIED only after every required layer passes.
 
@@ -40,6 +41,14 @@ Runtime lifecycle capabilities are partial and must not be collapsed into a
 single READY flag. Upgrade validation updates the sanitized capability report;
 same-thread reuse is promoted only when both DELTA delivery and PROJECT SYNC
 pass. An unverified heterogeneous reload permits active-thread reuse only.
+
+After any Codex/Multi-Agent/custom-provider/CCR/Responses change, rerun the
+mailbox transaction separately: strict packet validation, exact-role enqueue,
+fresh typed spawn with `fork_turns="none"`, matching `hook_emitted`, exact
+fixture result, and queue zero. A naked spawn must never be promoted to PASS.
+Re-check that `SubagentStart` registration remains accepted. In the 0.4.x
+series the mailbox and `hooks.json` remain operator-managed external
+dependencies; taking package ownership requires a minor lifecycle boundary.
 
 Codex config schema upgrades must also rerun the root consumer contract. Confirm
 that top-level `developer_instructions` remains a string, the managed policy is

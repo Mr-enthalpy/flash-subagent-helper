@@ -17,6 +17,11 @@ sessions/
 logs/
 tmp/
 .tmp/
+**/mailbox/queued/
+**/mailbox/receipts/
+**/mailbox/*.claimed.*
+**/mailbox/.*.tmp
+**/task-packets/
 attachments/
 models_cache.json
 .codex-global-state.json*

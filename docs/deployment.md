@@ -11,8 +11,13 @@
 6. Review `DEPLOYMENT PLAN`, then run `deploy.ps1 -Apply`.
 7. Install and enable the copied extension using the version-sensitive procedure
    below.
-8. Run `validate.ps1`, fully restart Codex and CCR, and optionally run paid live
-   doctor.
+8. Install the external DeepSeek TASK mailbox script under `CODEX_HOME/scripts`
+   and register its command for the typed roles in `CODEX_HOME/hooks.json`.
+   Package 0.4.x diagnoses but does not own these two operator-managed files.
+9. Run offline doctor and require script present, hook registered, packet
+   validator PASS, and queue EMPTY.
+10. Run `validate.ps1`, fully restart Codex and CCR, and optionally run paid live
+    doctor plus the mailbox transport smoke.
 
 ## Existing machine
 
@@ -22,6 +27,10 @@ top-level `developer_instructions` string. It aborts if any managed role name is
 present outside the TOML block, or if the root string uses syntax that cannot be
 located and rewritten safely. Root model/provider, auth, MCP, other agents/tools,
 and operator-owned root instructions are preserved.
+
+`hooks.json` and the external mailbox script are preserved as operator-managed
+dependencies. The deployment plan lists them under `external_dependencies`;
+the package neither copies nor removes them in the 0.4.x ownership series.
 
 ## Plan and compatibility states
 
@@ -91,3 +100,17 @@ install it. Version 0.4 owns one marked semantic block inside the existing root
 upgrade. Uninstall the active 0.3 deployment with its original checkout, review
 the 0.4 dry-run plan, then apply 0.4. Existing operator root instructions are
 merged and preserved; no root model/provider setting changes.
+
+## Mailbox ownership boundary
+
+Initial authoritative DeepSeek assignment delivery depends on a local mailbox
+and `SubagentStart` hook that predate this repository's 0.4 ownership contract.
+They are therefore an explicit external dependency, not an implied generated
+artifact. A new machine must obtain the reviewed mailbox implementation and
+register the hook through the operator's Codex configuration process. Doctor
+checks only non-secret structure and counts; it never reads TASK bodies or
+clears unknown queue entries.
+
+Moving mailbox code/hook registration under package deployment requires a minor
+version with safe `hooks.json` merge, backup, rollback, uninstall, and conflict
+semantics. Do not introduce that ownership in a 0.4 patch.

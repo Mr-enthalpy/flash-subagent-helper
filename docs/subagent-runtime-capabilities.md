@@ -15,7 +15,12 @@ paths, or provider-specific routing.
 
 | Capability | Result |
 |---|---|
-| typed worker spawn | PASS |
+| mailbox packet validation | PASS |
+| mailbox enqueue | PASS |
+| fresh spawn after enqueue | PASS |
+| SubagentStart delivery | PASS |
+| hook receipt verification | PASS |
+| typed worker spawn | PASS only for complete verified transaction |
 | parallel typed workers | PASS |
 | same-thread follow-up | FAIL |
 | same-thread PROJECT SYNC | FAIL |
@@ -23,6 +28,30 @@ paths, or provider-specific routing.
 | independent auditor | PASS |
 | workspace write | PASS |
 | Guardian auto-review | PASS |
+
+`spawn_typed_worker = PASS` never means a naked `spawn_agent` call. It means:
+
+```text
+authoritative packet whose literal first line is TASK
+  -> enqueue for exact role
+  -> READY_TO_SPAWN for role + task_name + receipt
+  -> fresh physical child with fork_turns="none"
+  -> matching SubagentStart receipt status hook_emitted
+  -> DISPATCHED
+```
+
+The receipt created by enqueue is the correlation identity. `task_name` is a
+short, non-sensitive audit label, not the authoritative payload or a queue
+selector. The tested mailbox consumes by role + FIFO, so only one unconsumed
+packet per role is safe. Complete acknowledgement for A before enqueueing B for
+the same role; the resulting workers may then execute in parallel.
+
+Failure compensation is part of the contract: enqueue failure forbids spawn;
+spawn failure after enqueue cancels the exact receipt; a missing/mismatched
+receipt remains `SPAWNED_UNVERIFIED` and is a transport failure. A worker that
+returns `TASK_NOT_RECEIVED` has not received a business assignment. Inspect the
+receipt, queue, ordering, role binding, strict packet grammar, and
+`SubagentStart` before considering provider diagnosis or retry.
 
 The provider-safe marker probe accepted the follow-up call but replayed the old
 assignment. Sanitized CCR inspection found the initial marker and no delta
@@ -53,8 +82,10 @@ UNRESOLVED
 A fresh typed worker receives only:
 
 ```text
-CONTINUATION
+TASK
 ROLE
+MODE
+CONTINUATION VIA CHECKPOINT
 WORKSTREAM
 PREVIOUS CHECKPOINT
 CHANGES SINCE CHECKPOINT
@@ -69,6 +100,20 @@ Call this `CONTINUATION VIA CHECKPOINT`. Do not use `send_message` as a resume
 substitute, and do not report queued delivery as executed work. If same-thread
 sync is unavailable, use `PROJECT STATE RECOVERY` with the checkpoint and the
 relevant current diff/state.
+
+This preserves a logical worker (role + workstream + checkpoint affinity)
+across fresh physical children. It is degraded continuity, never same-thread
+reuse. Every continuation packet still enters through the same mailbox
+transaction and still begins with `TASK`.
+
+## Package boundary
+
+In package 0.4.x the mailbox implementation and `SubagentStart` registration
+are operator-managed external dependencies. The package installs the root gate
+and diagnoses their presence, registration, validator, and queue count; it does
+not claim ownership of or rewrite `hooks.json`. This avoids an undeclared patch-
+series ownership expansion. External-worker deployment cannot be marked READY
+on a new machine until the mailbox transport smoke passes with queue zero.
 
 ## Revalidation
 
